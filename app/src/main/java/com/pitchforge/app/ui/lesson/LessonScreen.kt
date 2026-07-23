@@ -20,7 +20,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.Button
@@ -35,6 +37,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -75,6 +78,10 @@ fun LessonScreen(
     viewModel: LessonViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.stopAudio() }
+    }
 
     Column(
         modifier = Modifier
@@ -462,7 +469,7 @@ private fun FeedbackArea(state: LessonUiState, onNext: () -> Unit, onReplay: () 
             ) {
                 Text(
                     when {
-                        !state.feedbackAdvanceEnabled -> "Clearing replay…"
+                        !state.feedbackAdvanceEnabled -> "Playing answer…"
                         state.questionIndex + 1 < state.totalQuestions ->
                             stringResource(R.string.next_question)
                         else -> stringResource(R.string.see_results)
@@ -552,11 +559,52 @@ private fun ConfettiBurst(modifier: Modifier = Modifier) {
 @Composable
 private fun SummaryArea(state: LessonUiState, onNavigateToDashboard: () -> Unit) {
     val s = state.summary ?: return
-    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
+    Column(
+        Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
         Text(stringResource(R.string.lesson_complete), style = MaterialTheme.typography.displayMedium, color = MaterialTheme.colorScheme.primary)
         Spacer(Modifier.height(8.dp))
-        Text("Nice work — here's how you did.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
+        Text(
+            s.todayWin ?: "Nice work — here's how you did.",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center
+        )
         Spacer(Modifier.height(24.dp))
+
+        if (s.newlyMasteredNotes.isNotEmpty()) {
+            Surface(
+                color = MaterialTheme.colorScheme.tertiaryContainer,
+                shape = MaterialTheme.shapes.large,
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Text(
+                        if (s.newlyMasteredNotes.size == 1) "Note mastered!" else "Notes mastered!",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(6.dp))
+                    Text(
+                        s.newlyMasteredNotes.joinToString(" · ") { it.label },
+                        style = MaterialTheme.typography.headlineSmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        "Held ≥95% naming accuracy over the last 3 days. That's real absolute-pitch progress.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onTertiaryContainer
+                    )
+                }
+            }
+            Spacer(Modifier.height(16.dp))
+        }
 
         s.newlyUnlockedNote?.let {
             Surface(
@@ -627,7 +675,52 @@ private fun SummaryArea(state: LessonUiState, onNavigateToDashboard: () -> Unit)
                 }
             }
         }
-        Spacer(Modifier.weight(1f))
+
+        if (s.noteBreakdown.isNotEmpty()) {
+            Spacer(Modifier.height(16.dp))
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.large,
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+            ) {
+                Column(Modifier.padding(20.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        "What changed",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        "How each note went in this lesson",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    s.noteBreakdown.forEach { row ->
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                "${row.note.label}  ${row.correct}/${row.total} · ${row.percent}%",
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                            Text(
+                                row.tag,
+                                style = MaterialTheme.typography.labelLarge,
+                                fontWeight = FontWeight.SemiBold,
+                                color = when (row.tag) {
+                                    "Strong" -> MaterialTheme.colorScheme.primary
+                                    "Slipped" -> MaterialTheme.colorScheme.error
+                                    else -> MaterialTheme.colorScheme.onSurfaceVariant
+                                }
+                            )
+                        }
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(24.dp))
         if (s.suggestSecondSession) {
             Surface(
                 color = MaterialTheme.colorScheme.secondaryContainer,

@@ -105,7 +105,7 @@ data class PitchProgressSnapshot(
     val attemptCount: Int,
     val masteredAt: Long? = null,
     val correctWithinDeadlineCount: Int = 0,
-    /** Naming attempts within the trailing mastery window (e.g. last 7 days). */
+    /** Naming attempts within the trailing mastery window (e.g. last 3 days). */
     val windowAttemptCount: Int = 0,
     /** Of those, how many were correct within their deadline. */
     val windowCorrectCount: Int = 0

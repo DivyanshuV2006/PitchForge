@@ -5,7 +5,6 @@ import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -19,7 +18,6 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.AlertDialog
@@ -56,10 +54,11 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import com.pitchforge.app.domain.InterTrialPolicy
 import com.pitchforge.app.domain.MissionEngine
 import com.pitchforge.app.domain.NoteName
-import com.pitchforge.app.ui.components.AccuracyAreaChart
+import com.pitchforge.app.ui.components.FloatingNavBar
+import com.pitchforge.app.ui.components.FloatingNavDestination
 import com.pitchforge.app.ui.components.GoalRing
 import com.pitchforge.app.ui.components.SectionHeader
-import com.pitchforge.app.ui.components.StatChip
+import com.pitchforge.app.ui.components.SettingsIconButton
 import com.pitchforge.app.ui.components.rememberSmoothFlingBehavior
 import kotlinx.coroutines.delay
 
@@ -68,6 +67,7 @@ import kotlinx.coroutines.delay
 fun DashboardScreen(
     onStartLesson: () -> Unit,
     onOpenSettings: () -> Unit,
+    onOpenStats: () -> Unit,
     onOpenChallenge: () -> Unit,
     onOpenCheckup: () -> Unit,
     onOpenGeneralization: () -> Unit,
@@ -152,26 +152,26 @@ fun DashboardScreen(
                 title = {
                     Text("PitchForge", fontWeight = FontWeight.Bold, letterSpacing = 0.2.sp)
                 },
-                // Action sits at the end (right), clear of the centered front-camera punch-out.
                 actions = {
-                    TextButton(
-                        onClick = onOpenSettings,
-                        modifier = Modifier
-                            .padding(end = 8.dp)
-                            .border(
-                                width = 1.dp,
-                                color = MaterialTheme.colorScheme.outline,
-                                shape = RoundedCornerShape(12.dp)
-                            )
-                    ) {
-                        Text("Settings")
-                    }
+                    SettingsIconButton(onClick = onOpenSettings)
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
                     scrolledContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
                     titleContentColor = MaterialTheme.colorScheme.onBackground
                 )
+            )
+        },
+        bottomBar = {
+            FloatingNavBar(
+                selected = FloatingNavDestination.Home,
+                onSelect = { dest ->
+                    when (dest) {
+                        FloatingNavDestination.Home -> Unit
+                        FloatingNavDestination.Stats -> onOpenStats()
+                        FloatingNavDestination.Challenges -> onOpenChallenge()
+                    }
+                }
             )
         },
         floatingActionButton = {
@@ -200,12 +200,15 @@ fun DashboardScreen(
                         InterTrialPolicy.SessionGate.DOSE_COMPLETE -> "Dose complete"
                         InterTrialPolicy.SessionGate.COOLDOWN ->
                             "Wait ${InterTrialPolicy.formatCooldown(cooldownLeft)}"
-                        InterTrialPolicy.SessionGate.AVAILABLE ->
-                            if (state.lessonsCompletedToday > 0) {
-                                "Start Lesson · ${state.lessonsCompletedToday}/${InterTrialPolicy.DAILY_LESSON_HARD_CAP}"
-                            } else {
-                                "Start Lesson"
+                        InterTrialPolicy.SessionGate.AVAILABLE -> {
+                            val focus = state.nextNoteFocus?.note?.label
+                            when {
+                                focus != null -> "Continue · $focus"
+                                state.lessonsCompletedToday > 0 ->
+                                    "Start Lesson · ${state.lessonsCompletedToday}/${InterTrialPolicy.DAILY_LESSON_HARD_CAP}"
+                                else -> "Start Lesson"
                             }
+                        }
                     },
                     modifier = Modifier.padding(horizontal = 12.dp),
                     fontWeight = FontWeight.SemiBold
@@ -226,8 +229,13 @@ fun DashboardScreen(
             // Goal hero
             item { GoalHero(state) }
 
-            // Level / XP progress
-            item { LevelCard(state) }
+            state.plateauMessage?.let { msg ->
+                item { PlateauCallout(msg) }
+            }
+
+            state.weakNote?.let { weak ->
+                item { WeakNoteCallout(weak) }
+            }
 
             // 12-note collection + accuracy in one grid
             if (state.collection.isNotEmpty()) {
@@ -235,40 +243,13 @@ fun DashboardScreen(
                     DashboardCard {
                         SectionHeader(
                             "Your 12 notes",
-                            "Check = mastered · tint = recent accuracy"
+                            "Percent = how often you name it correctly"
                         )
                         Spacer(Modifier.height(12.dp))
                         NoteCollectionGrid(
                             collection = state.collection,
                             noteAccuracy = state.noteAccuracy
                         )
-                    }
-                }
-            }
-
-            // Quick stats
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    StatChip("${state.currentStreak}", "day streak", Modifier.weight(1f))
-                    StatChip("${state.totalLessons}", "lessons", Modifier.weight(1f))
-                    StatChip(if (state.totalLessons > 0) "${(state.overallAccuracy * 100).toInt()}%" else "—", "accuracy", Modifier.weight(1f))
-                    StatChip("${state.totalPracticeMinutes}m", "practiced", Modifier.weight(1f))
-                }
-            }
-
-            state.weakNote?.let { weak -> item { WeakNoteCallout(weak) } }
-
-            item {
-                DashboardCard {
-                    SectionHeader("Accuracy trend", "Last ${state.accuracyOverTime.size} sessions")
-                    Spacer(Modifier.height(12.dp))
-                    if (state.accuracyOverTime.size < 2) {
-                        EmptyHint("Complete a few lessons to see your trend.")
-                    } else {
-                        AccuracyAreaChart(state.accuracyOverTime.map { it.accuracy })
                     }
                 }
             }
@@ -331,20 +312,6 @@ fun DashboardScreen(
                         }
                     }
                 }
-            } else {
-                state.generalizationScore?.let { g ->
-                    item {
-                        DashboardCard {
-                            SectionHeader("Generalization score", "Untrained instrument probe")
-                            Spacer(Modifier.height(8.dp))
-                            Text(
-                                "${(g * 100).toInt()}% on an instrument you've never practiced",
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                style = MaterialTheme.typography.bodyMedium
-                            )
-                        }
-                    }
-                }
             }
 
             item {
@@ -372,9 +339,8 @@ fun DashboardScreen(
                 }
             }
 
-            item {
-                val baseline = state.baselineAccuracy
-                if (state.checkupDue) {
+            if (state.checkupDue) {
+                item {
                     Surface(
                         onClick = onOpenCheckup,
                         shape = MaterialTheme.shapes.large,
@@ -399,45 +365,6 @@ fun DashboardScreen(
                             }
                             Text("\u2192", fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                         }
-                    }
-                } else if (baseline != null) {
-                    Surface(
-                        shape = MaterialTheme.shapes.large,
-                        color = MaterialTheme.colorScheme.surfaceContainer,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(Modifier.padding(20.dp)) {
-                            Text(
-                                "Baseline ${(baseline * 100).toInt()}%",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Text(
-                                "Monthly checkup opens near month-end.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-            }
-
-            item {
-                Surface(
-                    onClick = onOpenChallenge,
-                    shape = MaterialTheme.shapes.large,
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Row(
-                        modifier = Modifier.padding(20.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Skill Challenges", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                            Text("Test modes — they don't affect your training stats.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Text("\u2192", fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -468,10 +395,37 @@ private fun GoalHero(state: DashboardUiState) {
             Spacer(Modifier.height(16.dp))
             Text("Absolute pitch goal", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
             Text(
-                if (state.masteredCount == 0) "Master a note at ≥95% accuracy over a week to unlock it here."
-                else "${12 - state.masteredCount} notes to go — hold ≥95% over the past week to master the next one.",
+                when {
+                    state.masteredCount >= 12 -> "All 12 — you built a full chromatic set."
+                    state.masteredCount == 0 -> "Master a note at ≥95% accuracy over 3 days to unlock it here."
+                    else -> "${12 - state.masteredCount} notes to go — hold ≥95% over the last 3 days to master the next one."
+                },
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun PlateauCallout(message: String) {
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.secondaryContainer,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                "Keep going",
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                message,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSecondaryContainer
             )
         }
     }
@@ -554,53 +508,6 @@ private fun MissionRow(label: String, progress: Int, target: Int, completed: Boo
 }
 
 @Composable
-private fun LevelCard(state: DashboardUiState) {
-    DashboardCard {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(
-                Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    "${state.level}",
-                    color = MaterialTheme.colorScheme.onPrimary,
-                    fontWeight = FontWeight.Bold,
-                    fontSize = 20.sp
-                )
-            }
-            Spacer(Modifier.size(14.dp))
-            Column(Modifier.weight(1f)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    Text("Level ${state.level}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(
-                        "${state.xpIntoLevel} / ${state.xpForNextLevel} XP",
-                        style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.SemiBold
-                    )
-                }
-                Spacer(Modifier.height(8.dp))
-                Box(
-                    Modifier.fillMaxWidth().height(10.dp).clip(CircleShape)
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                ) {
-                    Box(
-                        Modifier.fillMaxWidth(state.levelProgress).height(10.dp)
-                            .clip(CircleShape).background(MaterialTheme.colorScheme.primary)
-                    )
-                }
-                Spacer(Modifier.height(6.dp))
-                Text(
-                    "${state.totalXp} XP total \u00B7 ${state.xpForNextLevel - state.xpIntoLevel} XP to level ${state.level + 1}",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun NoteCollectionGrid(
     collection: List<NoteSlot>,
     noteAccuracy: Map<NoteName, Float>
@@ -646,6 +553,7 @@ private fun NoteCollectionCell(
         NoteCollectionState.LEARNING -> "Learning"
         NoteCollectionState.LOCKED -> "Locked"
     }
+    val percentLabel = accuracy?.let { "${(it * 100).toInt()}%" } ?: "—"
     val accBit = accuracy?.let { " · ${(it * 100).toInt()}%" }.orEmpty()
 
     Surface(
@@ -663,21 +571,12 @@ private fun NoteCollectionCell(
                     fontWeight = FontWeight.Bold,
                     fontSize = 15.sp
                 )
-                when (slot.state) {
-                    NoteCollectionState.MASTERED -> Icon(
-                        Icons.Rounded.Check,
-                        contentDescription = null,
-                        tint = fg,
-                        modifier = Modifier.size(12.dp)
-                    )
-                    NoteCollectionState.LEARNING -> Text(
-                        "•",
-                        color = fg,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                    NoteCollectionState.LOCKED -> Unit
-                }
+                Text(
+                    percentLabel,
+                    color = fg.copy(alpha = if (accuracy == null) 0.7f else 1f),
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold
+                )
             }
         }
     }

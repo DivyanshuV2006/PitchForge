@@ -48,6 +48,9 @@ interface NoteStatDao {
     @Query("SELECT * FROM note_stats WHERE userId = 1")
     fun getAllStats(): Flow<List<NoteStatEntity>>
 
+    @Query("SELECT * FROM note_stats WHERE userId = 1")
+    suspend fun getAllStatsSync(): List<NoteStatEntity>
+
     @Query("SELECT * FROM note_stats WHERE noteName = :note AND timbre = :timbre AND userId = 1")
     suspend fun getStat(note: String, timbre: String): NoteStatEntity?
 
@@ -62,6 +65,9 @@ interface NoteStatDao {
 interface LessonSessionDao {
     @Query("SELECT * FROM lesson_sessions WHERE userId = 1 ORDER BY startedAt DESC")
     fun getAllSessions(): Flow<List<LessonSessionEntity>>
+
+    @Query("SELECT * FROM lesson_sessions WHERE userId = 1 ORDER BY startedAt DESC")
+    suspend fun getAllSessionsSync(): List<LessonSessionEntity>
 
     @Insert
     suspend fun insertSession(session: LessonSessionEntity): Long

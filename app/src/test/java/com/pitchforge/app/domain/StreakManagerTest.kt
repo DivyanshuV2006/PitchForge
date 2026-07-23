@@ -48,7 +48,7 @@ class MissionEngineTest {
             listOf(
                 MissionEngine.MissionType.COMPLETE_LESSON,
                 MissionEngine.MissionType.SCORE_EIGHT,
-                MissionEngine.MissionType.PRACTICE_TIME
+                MissionEngine.MissionType.COMBO_STREAK
             ),
             missions.map { it.type }
         )
@@ -59,8 +59,15 @@ class MissionEngineTest {
         val missions = engine.generateDailyMissions()
         assertEquals(1, missions[0].target)
         assertEquals(1, missions[1].target)
-        assertEquals(10, missions[2].target)
+        assertEquals(MissionEngine.COMBO_TARGET, missions[2].target)
         assertEquals(20, MissionEngine.XP_REWARD)
         assertEquals(24, MissionEngine.SCORE_TARGET)
+    }
+
+    @Test
+    fun `maxCombo finds longest on-time run`() {
+        assertEquals(0, MissionEngine.maxCombo(emptyList()))
+        assertEquals(3, MissionEngine.maxCombo(listOf(true, true, true, false, true, true)))
+        assertEquals(5, MissionEngine.maxCombo(listOf(true, true, false, true, true, true, true, true)))
     }
 }

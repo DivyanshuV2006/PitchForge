@@ -163,6 +163,23 @@ class PracticeTimingPolicyTest {
     }
 
     @Test
+    fun `missedPracticeYesterday detects calendar gap`() {
+        val today = java.time.LocalDate.of(2026, 7, 22)
+        assertFalse(
+            PracticeTimingPolicy.missedPracticeYesterday("2026-07-21", today)
+        )
+        assertFalse(
+            PracticeTimingPolicy.missedPracticeYesterday("2026-07-22", today)
+        )
+        assertTrue(
+            PracticeTimingPolicy.missedPracticeYesterday("2026-07-20", today)
+        )
+        assertFalse(
+            PracticeTimingPolicy.missedPracticeYesterday(null, today)
+        )
+    }
+
+    @Test
     fun `second session nudge after exactly one lesson in afternoon`() {
         assertTrue(
             PracticeTimingPolicy.shouldSendSecondSessionReminder(

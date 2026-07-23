@@ -8,7 +8,7 @@
     <string name="onboarding_how_title">How It Works</string>
     <string name="onboarding_how_body">You\'ll hear a note, identify it, and get immediate feedback. The app adapts to your progress: starting with 3 notes, expanding as you master them.</string>
     <string name="onboarding_practice_title">Practice Matters</string>
-    <string name="onboarding_practice_body">Studies show meaningful improvement takes 12–40 hours over 8 weeks. A few minutes daily beats cramming.</string>
+    <string name="onboarding_practice_body">Everyone progresses at their own pace. A few minutes daily beats cramming.</string>
     <string name="onboarding_diagnostic_title">Diagnostic Test</string>
     <string name="onboarding_diagnostic_body">First, a short diagnostic: 12 notes with no feedback. This sets your baseline and determines your starting level.</string>
     <string name="next">Next</string>

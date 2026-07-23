@@ -26,11 +26,18 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.drawText
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlin.math.PI
+import kotlin.math.cos
+import kotlin.math.sin
 
 /**
  * Circular goal-progress ring used on the dashboard hero. Renders a track + sweep arc with a
@@ -181,5 +188,93 @@ fun AccuracyAreaChart(points: List<Float>, modifier: Modifier = Modifier, height
         drawPath(areaPath, fill)
         drawPath(linePath, line, style = Stroke(width = 4f, cap = StrokeCap.Round))
         coords.forEach { drawCircle(line, radius = 5f, center = it) }
+    }
+}
+
+/**
+ * Radar / spider chart of per-note mastery (0–1). Labels sit outside each axis tip —
+ * styled like a classic multi-axis proficiency web.
+ */
+@Composable
+fun NoteMasteryRadarChart(
+    labels: List<String>,
+    values: List<Float>,
+    modifier: Modifier = Modifier,
+    size: Dp = 280.dp,
+    rings: Int = 4
+) {
+    require(labels.size == values.size && labels.size >= 3)
+    val n = labels.size
+    val accent = MaterialTheme.colorScheme.primary
+    val fill = accent.copy(alpha = 0.22f)
+    val grid = MaterialTheme.colorScheme.outline.copy(alpha = 0.45f)
+    val axis = MaterialTheme.colorScheme.outline.copy(alpha = 0.35f)
+    val labelColor = MaterialTheme.colorScheme.onSurfaceVariant
+    val textMeasurer = rememberTextMeasurer()
+    val labelStyle = TextStyle(
+        color = labelColor,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.Medium
+    )
+
+    Canvas(modifier = modifier.fillMaxWidth().height(size)) {
+        val cx = this.size.width / 2f
+        val cy = this.size.height / 2f
+        val maxR = minOf(this.size.width, this.size.height) * 0.36f
+
+        fun point(index: Int, radius: Float): Offset {
+            val angle = (-PI / 2.0) + (2.0 * PI * index / n)
+            return Offset(
+                x = cx + (cos(angle) * radius).toFloat(),
+                y = cy + (sin(angle) * radius).toFloat()
+            )
+        }
+
+        // Concentric grid polygons
+        for (ring in 1..rings) {
+            val r = maxR * ring / rings
+            val ringPath = Path().apply {
+                val first = point(0, r)
+                moveTo(first.x, first.y)
+                for (i in 1 until n) {
+                    val p = point(i, r)
+                    lineTo(p.x, p.y)
+                }
+                close()
+            }
+            drawPath(ringPath, grid, style = Stroke(width = 1.2.dp.toPx()))
+        }
+
+        // Spokes
+        for (i in 0 until n) {
+            drawLine(axis, Offset(cx, cy), point(i, maxR), strokeWidth = 1.dp.toPx())
+        }
+
+        // Data polygon
+        val dataPts = values.mapIndexed { i, v ->
+            point(i, maxR * v.coerceIn(0f, 1f))
+        }
+        val dataPath = Path().apply {
+            moveTo(dataPts.first().x, dataPts.first().y)
+            dataPts.drop(1).forEach { lineTo(it.x, it.y) }
+            close()
+        }
+        drawPath(dataPath, fill)
+        drawPath(dataPath, accent, style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round, join = StrokeJoin.Round))
+        dataPts.forEach { drawCircle(accent, radius = 4.dp.toPx(), center = it) }
+
+        // Labels just outside the outer ring
+        val labelR = maxR * 1.18f
+        labels.forEachIndexed { i, label ->
+            val tip = point(i, labelR)
+            val layout = textMeasurer.measure(label, style = labelStyle)
+            drawText(
+                textLayoutResult = layout,
+                topLeft = Offset(
+                    tip.x - layout.size.width / 2f,
+                    tip.y - layout.size.height / 2f
+                )
+            )
+        }
     }
 }

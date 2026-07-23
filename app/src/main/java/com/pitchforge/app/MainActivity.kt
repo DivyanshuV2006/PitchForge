@@ -33,7 +33,8 @@ class MainActivity : ComponentActivity() {
                 "dark" -> true
                 else -> isSystemInDarkTheme()
             }
-            PitchForgeTheme(darkTheme = darkTheme) {
+            val cosmetic = com.pitchforge.app.domain.CosmeticTheme.fromId(settings.themeId)
+            PitchForgeTheme(darkTheme = darkTheme, theme = cosmetic) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background

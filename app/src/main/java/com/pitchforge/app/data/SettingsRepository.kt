@@ -25,6 +25,8 @@ data class AppSettings(
     val reminderTime: String = "18:00",
     val volume: Float = 0.8f,
     val darkMode: String = "system", // "light" | "dark" | "system"
+    /** Cosmetic color pack id — see [com.pitchforge.app.domain.CosmeticTheme]. */
+    val themeId: String = "studio",
     val textScale: Float = 1.0f,
     /** ISO date of the habit reminders sent today (or last send day). */
     val lastHabitReminderDate: String? = null,
@@ -52,6 +54,7 @@ class SettingsRepository @Inject constructor(
         val REMINDER = stringPreferencesKey("reminder_time")
         val VOLUME = floatPreferencesKey("volume")
         val DARK = stringPreferencesKey("dark_mode")
+        val THEME_ID = stringPreferencesKey("theme_id")
         val TEXT_SCALE = floatPreferencesKey("text_scale")
         val LAST_HABIT_REMINDER = stringPreferencesKey("last_habit_reminder_date")
         val HABIT_REMINDER_COUNT = intPreferencesKey("habit_reminder_count_on_date")
@@ -71,6 +74,7 @@ class SettingsRepository @Inject constructor(
         reminderTime = this[Keys.REMINDER] ?: "18:00",
         volume = this[Keys.VOLUME] ?: 0.8f,
         darkMode = this[Keys.DARK] ?: "system",
+        themeId = this[Keys.THEME_ID] ?: "studio",
         textScale = this[Keys.TEXT_SCALE] ?: 1.0f,
         lastHabitReminderDate = this[Keys.LAST_HABIT_REMINDER],
         habitReminderCountOnDate = this[Keys.HABIT_REMINDER_COUNT] ?: 0,
@@ -98,6 +102,9 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setDarkMode(mode: String) =
         context.dataStore.edit { it[Keys.DARK] = mode }
+
+    suspend fun setThemeId(themeId: String) =
+        context.dataStore.edit { it[Keys.THEME_ID] = themeId }
 
     suspend fun setTextScale(scale: Float) =
         context.dataStore.edit { it[Keys.TEXT_SCALE] = scale }

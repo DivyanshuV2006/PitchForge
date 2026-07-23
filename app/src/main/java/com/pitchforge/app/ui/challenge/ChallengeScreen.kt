@@ -34,6 +34,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -56,11 +57,27 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.pitchforge.app.R
 import com.pitchforge.app.ui.components.DeadlineRing
+import com.pitchforge.app.ui.components.FloatingNavBar
+import com.pitchforge.app.ui.components.FloatingNavDestination
+import com.pitchforge.app.ui.components.SettingsIconButton
 import com.pitchforge.app.ui.components.rememberSmoothFlingBehavior
 
-data class ChallengeInfo(val name: String, val description: String, val type: ChallengeType, val badge: String)
+data class ChallengeInfo(
+    val name: String,
+    val description: String,
+    val type: ChallengeType,
+    val badge: String,
+    val requiresMastery: Boolean = false
+)
 
 val challenges = listOf(
+    ChallengeInfo(
+        "Mastery Proof",
+        "Only notes you've mastered. Prove you still own them — doesn't change training stats.",
+        ChallengeType.PROOF,
+        "✓",
+        requiresMastery = true
+    ),
     ChallengeInfo("20-Note Gauntlet", "Name 20 notes in a row. No adaptive difficulty, no mercy.", ChallengeType.GAUNTLET, "20"),
     ChallengeInfo("Timed Mode", "3 seconds per note. Miss the clock and it counts against you.", ChallengeType.TIMED, "\u23F1"),
     ChallengeInfo("Mixed Timbre Chaos", "The instrument changes every question.", ChallengeType.CHAOS, "\u266A")
@@ -69,24 +86,45 @@ val challenges = listOf(
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ChallengeScreen(
-    onBack: () -> Unit,
+    onOpenHome: () -> Unit,
+    onOpenStats: () -> Unit,
+    onOpenSettings: () -> Unit,
     viewModel: ChallengeViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsState()
+
+    DisposableEffect(viewModel) {
+        onDispose { viewModel.stopAudio() }
+    }
 
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text("Skill Challenges", fontWeight = FontWeight.Bold) },
                 navigationIcon = {
-                    TextButton(onClick = { if (state.phase == ChallengePhase.IDLE) onBack() else viewModel.reset() }) {
-                        Text(if (state.phase == ChallengePhase.IDLE) "Back" else "Quit")
+                    if (state.phase != ChallengePhase.IDLE) {
+                        TextButton(onClick = viewModel::reset) { Text("Quit") }
                     }
+                },
+                actions = {
+                    SettingsIconButton(onClick = onOpenSettings)
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
                     containerColor = Color.Transparent,
                     scrolledContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
                 )
+            )
+        },
+        bottomBar = {
+            FloatingNavBar(
+                selected = FloatingNavDestination.Challenges,
+                onSelect = { dest ->
+                    when (dest) {
+                        FloatingNavDestination.Home -> onOpenHome()
+                        FloatingNavDestination.Stats -> onOpenStats()
+                        FloatingNavDestination.Challenges -> Unit
+                    }
+                }
             )
         }
     ) { padding ->
@@ -99,6 +137,20 @@ fun ChallengeScreen(
                         Spacer(Modifier.height(16.dp))
                         Text("Loading instruments…", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
+                }
+                ChallengePhase.UNAVAILABLE -> Column(
+                    Modifier.fillMaxSize(),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        state.unavailableMessage ?: "Not available yet.",
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center
+                    )
+                    Spacer(Modifier.height(16.dp))
+                    TextButton(onClick = viewModel::reset) { Text("Back") }
                 }
                 ChallengePhase.DONE -> ChallengeResult(state, onDone = viewModel::reset)
                 ChallengePhase.BUFFERING -> ChallengeBuffer(state)
@@ -149,7 +201,7 @@ private fun ChallengeList(onStart: (ChallengeType) -> Unit) {
     ) {
         item {
             Text(
-                "Harder, non-adaptive TEST modes. These don't affect your training accuracy model — they're tests, not practice.",
+                "Tests, not practice — results never change your training model. Mastery Proof uses only notes you've already mastered.",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 style = MaterialTheme.typography.bodyMedium
             )
@@ -298,7 +350,31 @@ private fun ChallengeResult(state: ChallengeUiState, onDone: () -> Unit) {
             )
         }
         Spacer(Modifier.height(8.dp))
-        Text("This result does not affect your training stats.", style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+        val proofLine = if (state.type == ChallengeType.PROOF) {
+            val rate = if (state.total > 0) state.correct.toFloat() / state.total else 0f
+            when {
+                rate >= 0.85f -> "Your ear held up — those mastered notes still stick."
+                rate >= 0.6f -> "Mostly solid. A slip means that chroma wants another lesson."
+                else -> "They slipped. Bring them back into focus on Home."
+            }
+        } else {
+            "This result does not affect your training stats."
+        }
+        Text(
+            proofLine,
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            textAlign = TextAlign.Center
+        )
+        if (state.type == ChallengeType.PROOF) {
+            Spacer(Modifier.height(6.dp))
+            Text(
+                "Proof runs never change your training model.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                textAlign = TextAlign.Center
+            )
+        }
         Spacer(Modifier.height(32.dp))
         Button(
             onClick = onDone,

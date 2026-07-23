@@ -11,6 +11,8 @@ import com.pitchforge.app.domain.NoteName
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -63,6 +65,8 @@ class AudioManager @Inject constructor(
     /** Samples that finished loading before a waiter was registered (race with SoundPool). */
     private val alreadyLoadedIds = ConcurrentHashMap.newKeySet<Int>()
     private val loadLock = Any()
+    /** One lock per timbre so preload and lesson/challenge loads don't race or double-decode. */
+    private val timbreMutexes = ConcurrentHashMap<String, Mutex>()
     @Volatile private var lastSineTrack: AudioTrack? = null
     @Volatile private var lastStreamId: Int = 0
     @Volatile private var washoutTrack: AudioTrack? = null
@@ -125,8 +129,18 @@ class AudioManager @Inject constructor(
         return (listOf(SINE, SQUARE) + fromDisk).distinct()
     }
 
-    override suspend fun ensureLoaded(timbre: String, octaves: List<Int>) = withContext(Dispatchers.IO) {
-        if (timbre in loadedTimbres) return@withContext
+    override suspend fun ensureLoaded(timbre: String, octaves: List<Int>) {
+        if (timbre in loadedTimbres) return
+        val mutex = timbreMutexes.getOrPut(timbre) { Mutex() }
+        mutex.withLock {
+            if (timbre in loadedTimbres) return
+            withContext(Dispatchers.IO) {
+                loadTimbreLocked(timbre, octaves)
+            }
+        }
+    }
+
+    private suspend fun loadTimbreLocked(timbre: String, octaves: List<Int>) {
         if (timbre in SYNTH_TIMBRES) {
             octaves.forEach { octave ->
                 NoteName.entries.forEach { note ->
@@ -138,7 +152,7 @@ class AudioManager @Inject constructor(
                 }
             }
             loadedTimbres.add(timbre)
-            return@withContext
+            return
         }
         copyBundledAssets(timbre)
         val timbreDir = File(samplesDir, timbre)
@@ -257,21 +271,32 @@ class AudioManager @Inject constructor(
         val color = NoiseColor.forOctave(octave)
         val buffer = synthesizeColoredNoise(color, durationMs)
         val gain = masterVolume * NOISE_GAIN * colorGain(color)
-        withContext(Dispatchers.Default) {
-            playWashoutPcm(buffer, gain)
+        try {
+            withContext(Dispatchers.Default) {
+                playWashoutPcm(buffer, gain)
+            }
+            delay(durationMs.toLong())
+        } finally {
+            stopWashout()
         }
-        delay(durationMs.toLong())
-        stopWashout()
     }
 
     override suspend fun playClusterWashout(octave: Int, durationMs: Int) {
         stopActiveNotes()
         val buffer = synthesizeCluster(octave, durationMs)
         val gain = masterVolume * CLUSTER_GAIN
-        withContext(Dispatchers.Default) {
-            playWashoutPcm(buffer, gain)
+        try {
+            withContext(Dispatchers.Default) {
+                playWashoutPcm(buffer, gain)
+            }
+            delay(durationMs.toLong())
+        } finally {
+            stopWashout()
         }
-        delay(durationMs.toLong())
+    }
+
+    override fun stopAll() {
+        stopActiveNotes()
         stopWashout()
     }
 
@@ -536,8 +561,7 @@ class AudioManager @Inject constructor(
     }
 
     fun release() {
-        stopActiveNotes()
-        stopWashout()
+        stopAll()
         soundPool.release()
         loadedSamples.clear()
         synthBuffers.clear()

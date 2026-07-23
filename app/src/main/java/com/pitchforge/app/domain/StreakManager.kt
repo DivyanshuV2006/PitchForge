@@ -46,7 +46,8 @@ class MissionEngine {
     enum class MissionType(val description: String) {
         COMPLETE_LESSON("Complete 1 daily lesson"),
         SCORE_EIGHT("Score at least 24/30 on daily lesson"),
-        PRACTICE_TIME("Practice for 10 minutes")
+        /** Peak on-time correct streak within a single lesson. */
+        COMBO_STREAK("Hit a 5-in-a-row streak")
     }
 
     data class DailyMission(
@@ -60,11 +61,28 @@ class MissionEngine {
         const val XP_REWARD = 20
         /** Correct-within-deadline answers needed for the score mission (~80% of 30). */
         const val SCORE_TARGET = 24
+        /** Consecutive on-time corrects required for the combo mission. */
+        const val COMBO_TARGET = 5
+
+        /** Longest run of on-time corrects in [correctWithinDeadline] order. */
+        fun maxCombo(correctWithinDeadline: List<Boolean>): Int {
+            var current = 0
+            var best = 0
+            for (hit in correctWithinDeadline) {
+                if (hit) {
+                    current++
+                    if (current > best) best = current
+                } else {
+                    current = 0
+                }
+            }
+            return best
+        }
     }
 
     fun generateDailyMissions(): List<DailyMission> = listOf(
         DailyMission(MissionType.COMPLETE_LESSON, target = 1),
         DailyMission(MissionType.SCORE_EIGHT, target = 1),
-        DailyMission(MissionType.PRACTICE_TIME, target = 10)
+        DailyMission(MissionType.COMBO_STREAK, target = COMBO_TARGET)
     )
 }

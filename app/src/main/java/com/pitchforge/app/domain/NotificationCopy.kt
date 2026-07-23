@@ -45,8 +45,32 @@ object NotificationCopy {
         Message("Open and listen", "Your absolute-pitch journey starts with a single short session.")
     )
 
-    fun habit(streak: Int = 0, hasPracticeHistory: Boolean = true, random: Random = Random.Default): Message {
-        val base = pick(if (hasPracticeHistory) HABIT_WITH_HISTORY else HABIT_NO_HISTORY, random)
+    /** Day after a missed practice — acknowledge the gap, encourage returning (not guilt). */
+    private val HABIT_AFTER_MISS = listOf(
+        Message("Yesterday got away — that's okay", "Consistency is about returning, not perfection. One short lesson today puts you back on track."),
+        Message("Missed a day? No spiral.", "Showing up today matters more than a perfect calendar. Your ear is ready when you are."),
+        Message("A skipped day doesn't erase progress", "Absolute pitch grows from coming back. Drop in for one session and rebuild the rhythm."),
+        Message("Gently restart the habit", "You missed yesterday — totally human. A quick lesson today keeps the practice kind and alive."),
+        Message("Return beats regret", "One miss isn't a reset of your ear — just a pause. Consistency starts again with today's session."),
+        Message("Pick the thread back up", "Gaps happen. The win is opening PitchForge again — even one lesson rebuilds momentum."),
+        Message("Today is the comeback day", "You didn't practice yesterday. That's fine — consistency is a pattern, not a streak of guilt."),
+        Message("No perfect calendar required", "Missing a day is normal. What compounds is returning tomorrow — which is today."),
+        Message("Your ear still remembers", "A day off doesn't undo the work. A focused session now keeps the habit honest."),
+        Message("Soft landing, then train", "Yesterday slipped by. Meet yourself kindly, then name a few notes — that's real consistency."),
+        Message("Restart without drama", "Skipped yesterday? Open the app, do one lesson, move on. Routines survive imperfect weeks."),
+        Message("Consistency loves comebacks", "The learners who improve aren't never-miss — they're the ones who return after a miss.")
+    )
+
+    fun habit(
+        streak: Int = 0,
+        hasPracticeHistory: Boolean = true,
+        missedYesterday: Boolean = false,
+        random: Random = Random.Default
+    ): Message {
+        if (!hasPracticeHistory) return pick(HABIT_NO_HISTORY, random)
+        // After a miss, skip streak append — the calendar gap already broke continuity.
+        if (missedYesterday) return pick(HABIT_AFTER_MISS, random)
+        val base = pick(HABIT_WITH_HISTORY, random)
         if (streak <= 0) return base
         return base.copy(body = "${base.body} Keep your $streak-day streak going!")
     }

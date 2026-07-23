@@ -36,6 +36,9 @@ interface NotePlayer {
         durationMs: Int = DEFAULT_WASHOUT_MS
     )
 
+    /** Immediately silence any playing trial tone or washout (e.g. when leaving a screen). */
+    fun stopAll()
+
     companion object {
         const val DEFAULT_WASHOUT_MS = 2000
     }

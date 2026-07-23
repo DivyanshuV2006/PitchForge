@@ -6,11 +6,15 @@ import com.pitchforge.app.domain.AnswerOutcome
 import com.pitchforge.app.domain.DeadlineManager
 import com.pitchforge.app.domain.GeneralizationPolicy
 import com.pitchforge.app.domain.LessonQuestion
+import com.pitchforge.app.domain.LevelSystem
 import com.pitchforge.app.domain.MissionEngine
+import com.pitchforge.app.domain.NoteLessonDelta
 import com.pitchforge.app.domain.NoteName
 import com.pitchforge.app.domain.NoteSelector
+import com.pitchforge.app.domain.SessionFeedback
 import com.pitchforge.app.domain.StreakManager
 import com.pitchforge.app.domain.TaskType
+import com.pitchforge.app.domain.TimbreSkill
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -49,7 +53,7 @@ class PitchForgeRepository @Inject constructor(
         const val PRIMARY_OCTAVE = 4
         const val MASTERY_MIN_ATTEMPTS = 15
         /** Mastery is judged over naming attempts in this trailing window. */
-        const val MASTERY_WINDOW_DAYS = 7L
+        const val MASTERY_WINDOW_DAYS = 3L
         const val XP_PER_CORRECT = 10
 
         /** Expanding spaced-repetition review ladder (days) for mastered notes. */
@@ -100,7 +104,19 @@ class PitchForgeRepository @Inject constructor(
 
     suspend fun activePitchInfos(): List<ActivePitchInfo> {
         val now = System.currentTimeMillis()
-        return pitchProgressDao.getActiveProgress().map { it.toActivePitchInfo(now) }
+        val skillsByNote = noteStatDao.getAllStatsSync()
+            .groupBy { it.noteName }
+            .mapValues { (_, rows) ->
+                rows.associate { row ->
+                    row.timbre to TimbreSkill(
+                        attemptCount = row.attemptCount,
+                        emaAccuracy = row.emaAccuracy
+                    )
+                }
+            }
+        return pitchProgressDao.getActiveProgress().map { entity ->
+            entity.toActivePitchInfo(now, skillsByNote[entity.noteName].orEmpty())
+        }
     }
 
     suspend fun masteredReviewPitches(): List<NoteName> =
@@ -108,46 +124,35 @@ class PitchForgeRepository @Inject constructor(
             .filter { it.masteredAt != null && !it.isActive }
             .map { NoteName.fromLabel(it.noteName) }
 
-    /**
-     * Progressive octave staging (§2.4d): keep a single anchor octave while the learner
-     * builds their first pitches, then widen the range as more notes are mastered. This
-     * makes early chroma-anchoring easier while still removing the relative-height crutch later.
-     */
-    suspend fun currentOctaves(): List<Int> {
-        val masteredCount = pitchProgressDao.getAllProgressSync().count { it.masteredAt != null }
-        return when {
-            masteredCount < 3 -> listOf(PRIMARY_OCTAVE)                      // anchor: one octave
-            masteredCount < 6 -> listOf(PRIMARY_OCTAVE, PRIMARY_OCTAVE + 1)  // widen to two
-            else -> AVAILABLE_OCTAVES                                        // full range
-        }
-    }
+    /** Notes whose mastery timestamp falls at or after [sinceMs] (e.g. this lesson). */
+    suspend fun notesMasteredSince(sinceMs: Long): List<NoteName> =
+        pitchProgressDao.getAllProgressSync()
+            .filter { it.masteredAt != null && it.masteredAt!! >= sinceMs }
+            .map { NoteName.fromLabel(it.noteName) }
+            .sortedBy { it.semitone }
+
+    /** All currently mastered chromas (active or review). */
+    suspend fun masteredNotes(): List<NoteName> =
+        pitchProgressDao.getAllProgressSync()
+            .filter { it.masteredAt != null }
+            .map { NoteName.fromLabel(it.noteName) }
+            .sortedBy { it.semitone }
 
     /**
-     * Progressive timbre staging (§2.4d / Studies A–B): stay on one instrument while the
-     * first chroma anchors form, then rotate in additional selected instruments. Mixing every
-     * instrument from day one slows early learning; progressive mix is faster overall and
-     * builds the generalization the research measured.
-     *
-     * Uses the user's Settings "active timbres" list; always includes at least the primary.
+     * Settings-selected instruments for lessons (and preload). Per-note staging — which
+     * subset actually plays on a given trial — lives in [LessonPlanner.timbrePoolFor].
      */
-    suspend fun currentTimbres(): List<String> {
-        val selected = settingsRepository.current().activeTimbres
+    suspend fun selectedTimbres(): List<String> =
+        settingsRepository.current().activeTimbres
             .filter { it.isNotBlank() }
             .distinct()
             .ifEmpty { listOf("piano") }
-        val primary = selected.first()
-        if (selected.size == 1) return selected
 
-        val masteredCount = pitchProgressDao.getAllProgressSync().count { it.masteredAt != null }
-        return when {
-            masteredCount < 3 -> listOf(primary)                 // one instrument while anchoring
-            masteredCount < 6 -> selected.take(2) // primary + one more once a few notes stick
-            else -> selected                                     // full rotation of selected set
-        }
-    }
+    /** @deprecated Prefer [selectedTimbres]; kept for any older call sites. */
+    suspend fun currentTimbres(): List<String> = selectedTimbres()
 
     suspend fun primaryTimbre(): String =
-        settingsRepository.current().activeTimbres.firstOrNull { it.isNotBlank() } ?: "piano"
+        selectedTimbres().first()
 
     /**
      * Records one answered/timed-out trial: writes the QuestionAttempt row and updates the
@@ -209,7 +214,7 @@ class PitchForgeRepository @Inject constructor(
             attemptCount = masteryAttempts
         )
 
-        // Mastery = ≥95% naming accuracy over the trailing window (default 7 days). The just-
+        // Mastery = ≥95% naming accuracy over the trailing window (default 3 days). The just-
         // recorded attempt is already persisted, so the window query includes it.
         val since = now - TimeUnit.DAYS.toMillis(MASTERY_WINDOW_DAYS)
         val windowAttempts = questionAttemptDao.countNamingSince(question.note.label, since)
@@ -255,7 +260,11 @@ class PitchForgeRepository @Inject constructor(
 
     private suspend fun updateNoteStat(question: LessonQuestion, outcome: AnswerOutcome) {
         val existing = noteStatDao.getStat(question.note.label, question.timbre)
-        val emaAcc = noteSelector.computeEma(existing?.emaAccuracy ?: 0.5f, outcome.correct)
+        // Within-deadline accuracy so instrument mastery matches the rest of the AP engine.
+        val emaAcc = noteSelector.computeEma(
+            existing?.emaAccuracy ?: 0.5f,
+            outcome.correctWithinDeadline
+        )
         val emaErr = 0.3f * outcome.errorSemitones + 0.7f * (existing?.emaErrorSemitones ?: 0f)
         noteStatDao.upsertStat(
             (existing ?: NoteStatEntity(noteName = question.note.label, octave = question.octave, timbre = question.timbre))
@@ -290,7 +299,8 @@ class PitchForgeRepository @Inject constructor(
         val correct = attempts.count { it.correctWithinDeadline }
         val avgRt = attempts.map { it.responseTimeMs }.average().toFloat()
         val avgErr = attempts.map { it.errorSemitones }.average().toFloat()
-        val xp = correct * XP_PER_CORRECT
+        val level = LevelSystem.levelForXp(totalXp()).level
+        val xp = LevelSystem.scaleXp(correct * XP_PER_CORRECT, level)
 
         val session = lessonSessionDao.getSession(sessionId)
         if (session != null) {
@@ -306,7 +316,8 @@ class PitchForgeRepository @Inject constructor(
             )
         }
         advanceStreak(durationSeconds)
-        updateMissionsAfterLesson(correct, attempts.size, durationSeconds)
+        val sessionCombo = MissionEngine.maxCombo(attempts.map { it.correctWithinDeadline })
+        updateMissionsAfterLesson(correct, sessionCombo)
     }
 
     data class SessionSummary(
@@ -330,14 +341,29 @@ class PitchForgeRepository @Inject constructor(
         val attempts = questionAttemptDao.getAttemptsForSession(sessionId)
         if (attempts.isEmpty()) return SessionSummary(0f, 0f, 0f, 0, 0, 0)
         val correctWithin = attempts.count { it.correctWithinDeadline }
+        val session = lessonSessionDao.getSession(sessionId)
+        val xp = session?.xpEarned?.takeIf { session.completedAt != null }
+            ?: LevelSystem.scaleXp(
+                correctWithin * XP_PER_CORRECT,
+                LevelSystem.levelForXp(totalXp()).level
+            )
         return SessionSummary(
             accuracy = correctWithin.toFloat() / attempts.size,
             avgError = attempts.map { it.errorSemitones }.average().toFloat(),
             avgRt = attempts.map { it.responseTimeMs }.average().toFloat(),
             total = attempts.size,
             correctWithinDeadline = correctWithin,
-            xp = correctWithin * XP_PER_CORRECT
+            xp = xp
         )
+    }
+
+    /** Per-note naming results for the lesson-complete “what changed” breakdown. */
+    suspend fun sessionNoteBreakdown(sessionId: Long): List<NoteLessonDelta> {
+        val attempts = questionAttemptDao.getAttemptsForSession(sessionId)
+        val naming = attempts
+            .filter { it.taskType == TaskType.NAMING.name }
+            .map { NoteName.fromLabel(it.noteName) to it.correctWithinDeadline }
+        return SessionFeedback.noteBreakdown(naming)
     }
 
     private suspend fun advanceStreak(durationSeconds: Long) {
@@ -424,12 +450,12 @@ class PitchForgeRepository @Inject constructor(
         dailyMissionDao.getMissionsForDate(today)
     }
 
-    private suspend fun updateMissionsAfterLesson(correct: Int, total: Int, durationSeconds: Long) {
+    private suspend fun updateMissionsAfterLesson(correct: Int, sessionCombo: Int) {
         val today = LocalDate.now().toString()
         // Ensure today's fixed missions exist before updating progress.
         val missions = todaysMissions()
-        val practicedMinutes = Math.round(durationSeconds / 60.0).toInt()
         var missionXpGained = 0
+        val level = LevelSystem.levelForXp(totalXp()).level
         missions.forEach { m ->
             val type = runCatching { MissionEngine.MissionType.valueOf(m.missionType) }.getOrNull()
                 ?: return@forEach
@@ -437,17 +463,18 @@ class PitchForgeRepository @Inject constructor(
                 MissionEngine.MissionType.COMPLETE_LESSON -> (m.progress + 1).coerceAtMost(m.target)
                 MissionEngine.MissionType.SCORE_EIGHT ->
                     if (correct >= MissionEngine.SCORE_TARGET) m.target else m.progress
-                MissionEngine.MissionType.PRACTICE_TIME ->
-                    (m.progress + practicedMinutes).coerceAtMost(m.target)
+                MissionEngine.MissionType.COMBO_STREAK ->
+                    maxOf(m.progress, sessionCombo).coerceAtMost(m.target)
             }
             val nowComplete = progress >= m.target
+            val freshReward = LevelSystem.scaleXp(MissionEngine.XP_REWARD, level)
             val xpAwarded = when {
                 nowComplete && m.xpAwarded > 0 -> m.xpAwarded
-                nowComplete && !m.completed -> MissionEngine.XP_REWARD
-                nowComplete -> MissionEngine.XP_REWARD
+                nowComplete && !m.completed -> freshReward
+                nowComplete -> freshReward
                 else -> 0
             }
-            if (nowComplete && !m.completed) missionXpGained += MissionEngine.XP_REWARD
+            if (nowComplete && !m.completed) missionXpGained += freshReward
             dailyMissionDao.updateMission(today, m.missionType, progress, nowComplete, xpAwarded)
         }
         if (missionXpGained > 0) {
@@ -597,13 +624,18 @@ class PitchForgeRepository @Inject constructor(
     }
 }
 
-private fun PitchProgressEntity.toActivePitchInfo(now: Long) = ActivePitchInfo(
+private fun PitchProgressEntity.toActivePitchInfo(
+    now: Long,
+    timbreSkills: Map<String, TimbreSkill> = emptyMap()
+) = ActivePitchInfo(
     note = NoteName.fromLabel(noteName),
     currentDeadlineMs = currentDeadlineMs,
-    emaAccuracy = emaAccuracyAll,
+    // Within-deadline EMA drives weak-note weighting and per-note octave unlock (≥95%).
+    emaAccuracy = emaAccuracyWithinDeadline,
     attemptCount = attemptCount,
     mastered = masteredAt != null,
-    dueForReview = masteredAt != null && (nextReviewAt == null || nextReviewAt <= now)
+    dueForReview = masteredAt != null && (nextReviewAt == null || nextReviewAt <= now),
+    timbreSkills = timbreSkills
 )
 
 private fun PitchProgressEntity.toSnapshot(

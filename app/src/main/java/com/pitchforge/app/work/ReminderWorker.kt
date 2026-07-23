@@ -81,7 +81,11 @@ class ReminderWorker @AssistedInject constructor(
         val (title, text) = PracticeTimingPolicy.habitNotificationCopy(
             preferredHour = preferred,
             streak = user?.currentStreak ?: 0,
-            hasPracticeHistory = hasHistory
+            hasPracticeHistory = hasHistory,
+            missedYesterday = PracticeTimingPolicy.missedPracticeYesterday(
+                lastPracticeIsoDate = user?.lastPracticeDate,
+                today = LocalDate.parse(today)
+            )
         )
         Notifications.post(applicationContext, Notifications.ID_HABIT, title, text)
         settingsRepository.recordHabitReminder(today, nowMs)

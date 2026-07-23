@@ -17,6 +17,12 @@ data class LessonQuestion(
     val deadlineMs: Int
 )
 
+/** Per-instrument skill for one chroma (from note_stats). */
+data class TimbreSkill(
+    val attemptCount: Int,
+    val emaAccuracy: Float
+)
+
 /** Per-pitch state the planner needs, decoupled from Room entities. */
 data class ActivePitchInfo(
     val note: NoteName,
@@ -25,24 +31,20 @@ data class ActivePitchInfo(
     val attemptCount: Int,
     val mastered: Boolean,
     /** A mastered pitch whose spaced-repetition review is due. */
-    val dueForReview: Boolean = false
+    val dueForReview: Boolean = false,
+    /** On-time EMA / attempts keyed by timbre for this chroma. */
+    val timbreSkills: Map<String, TimbreSkill> = emptyMap()
 )
 
 /**
  * Builds a dynamic lesson (§2.2) from the user's active pitch set and weak-note profile.
  *
  * - Uses [NoteSelector] for weighted, interval-avoiding note selection (Study A / C).
- * - Mixes NAMING and VERIFICATION (Study B): verification is used more heavily for
- *   brand-new pitches (<10 exposures); naming dominates once a pitch is established.
- * - Each question carries the pitch's own current response deadline (Study C).
- * - Octave randomization: every trial picks a random octave from [octaves] so the learner
- *   must identify the pitch CLASS (chroma) regardless of how high or low it sounds. Playing
- *   a fixed octave lets a learner pass by relative "low/mid/high" ordering — a relative-pitch
- *   crutch — which defeats absolute-pitch training. Consecutive-trial interval avoidance
- *   (in [NoteSelector]) is chroma-based, so it still holds across octaves.
- * - Timbre rotation: when [timbres] has more than one entry, instruments rotate across
- *   trials (no consecutive repeat). The repository stages this progressively so early
- *   lessons stay on one instrument while chroma anchors form (§2.4d).
+ * - Mixes NAMING and VERIFICATION (Study B).
+ * - Per-note octave staging first: anchor octave 4 until the chroma is solid, then 3–5.
+ * - Per-note timbre staging after that: stay on the primary instrument through octave
+ *   seasoning, then unlock Settings instruments one at a time — each new instrument only
+ *   after the previous one is mastered for that chroma.
  */
 class LessonPlanner(
     private val noteSelector: NoteSelector = NoteSelector()
@@ -51,7 +53,6 @@ class LessonPlanner(
         activePitches: List<ActivePitchInfo>,
         masteredPitches: List<NoteName>,
         timbres: List<String>,
-        octaves: List<Int>,
         questionCount: Int,
         random: Random = Random.Default
     ): List<LessonQuestion> {
@@ -60,16 +61,13 @@ class LessonPlanner(
         val accuracyMap = activePitches.associate { it.note to it.emaAccuracy }
         val infoByNote = activePitches.associateBy { it.note }
 
-        // Notes still being acquired form the core pool; mastered notes only re-enter when
-        // their spaced-repetition review is due (expanding intervals — Study A retention).
         val learning = activePitches.filter { !it.mastered }
         val activeNotes = (if (learning.isNotEmpty()) learning else activePitches).map { it.note }
         val dueReview = activePitches.filter { it.mastered && it.dueForReview }.map { it.note }
         val reviewPool = (dueReview + masteredPitches).distinct().filter { it !in activeNotes }
 
         val count = questionCount.coerceIn(8, 30)
-        val octaveChoices = octaves.ifEmpty { listOf(4) }
-        val timbreChoices = timbres.filter { it.isNotBlank() }.ifEmpty { listOf("piano") }
+        val selectedTimbres = timbres.filter { it.isNotBlank() }.ifEmpty { listOf("piano") }
 
         val questions = mutableListOf<LessonQuestion>()
         var lastNote: NoteName? = null
@@ -86,7 +84,6 @@ class LessonPlanner(
             val info = infoByNote[note]
             val isNew = info?.let { it.attemptCount < 10 } ?: false
 
-            // Verification is common for new pitches, rare once a pitch is established.
             val verificationChance = if (isNew) 0.6f else 0.2f
             val taskType = if (random.nextFloat() < verificationChance) {
                 TaskType.VERIFICATION
@@ -95,27 +92,26 @@ class LessonPlanner(
             }
 
             val candidate = if (taskType == TaskType.VERIFICATION) {
-                // Half the time show the true note (expected "yes"), half a distractor.
                 if (random.nextFloat() < 0.5f) note
                 else activeNotes.filter { it != note }.randomOrNull(random) ?: note
             } else null
 
-            // Randomize octave; mastered ("green") chromas take the widest jump available
-            // so relative high/low from the previous trial is a weaker crutch.
             val masteredChroma = info?.mastered == true || note in reviewPool
+            val octavePool = octavePoolFor(info, masteredChroma)
             val octave = pickOctave(
-                pool = if (masteredChroma) MASTERED_OCTAVES else octaveChoices,
+                pool = octavePool,
                 lastOctave = lastOctave,
                 preferMaxJump = masteredChroma,
                 random = random
             )
             lastOctave = octave
 
-            val timbre = if (timbreChoices.size > 1) {
-                timbreChoices.filter { it != lastTimbre }.random(random)
-            } else {
-                timbreChoices.first()
-            }
+            val timbrePool = timbrePoolFor(
+                info = info,
+                masteredChroma = masteredChroma,
+                selected = selectedTimbres
+            )
+            val timbre = pickTimbre(timbrePool, lastTimbre, random)
             lastTimbre = timbre
 
             questions.add(
@@ -134,24 +130,88 @@ class LessonPlanner(
     }
 
     companion object {
-        /** Full sample range — used for mastered chromas even early in training. */
-        val MASTERED_OCTAVES = listOf(3, 4, 5)
+        val ANCHOR_OCTAVES = listOf(4)
+        val WIDE_OCTAVES = listOf(3, 4, 5)
+        val MASTERED_OCTAVES = WIDE_OCTAVES
 
         /**
-         * @param preferMaxJump when true (mastered chroma), pick an octave farthest from
-         *   [lastOctave] — typically a 2-octave leap across 3↔5.
+         * Overall naming attempts on a chroma before the first extra instrument may unlock.
+         * Octave widening happens at [ActivePitchSetManager.MASTERY_MIN_ATTEMPTS]; this gap
+         * is the “season on wide octaves” period (~a few more lessons).
          */
+        const val TIMBRE_EXPAND_MIN_ATTEMPTS = 30
+
+        fun noteIsSolid(info: ActivePitchInfo?): Boolean {
+            val attempts = info?.attemptCount ?: 0
+            val acc = info?.emaAccuracy ?: 0f
+            return attempts >= ActivePitchSetManager.MASTERY_MIN_ATTEMPTS &&
+                acc >= ActivePitchSetManager.MASTERY_ACCURACY
+        }
+
+        /** Ready for wide octaves (3–5). */
+        fun octavePoolFor(info: ActivePitchInfo?, masteredChroma: Boolean): List<Int> {
+            if (masteredChroma || noteIsSolid(info)) return WIDE_OCTAVES
+            return ANCHOR_OCTAVES
+        }
+
+        /** True when this note+timbre pair is mastered enough to unlock the next instrument. */
+        fun instrumentMastered(skill: TimbreSkill?): Boolean {
+            if (skill == null) return false
+            return skill.attemptCount >= ActivePitchSetManager.MASTERY_MIN_ATTEMPTS &&
+                skill.emaAccuracy >= ActivePitchSetManager.MASTERY_ACCURACY
+        }
+
+        /**
+         * Octaves first: extra instruments only after the chroma is solid *and* has been
+         * practiced further ([TIMBRE_EXPAND_MIN_ATTEMPTS]). Then unlock Settings instruments
+         * one at a time — each new one requires mastery of the previous on this chroma.
+         */
+        fun noteIsTimbreExpandReady(info: ActivePitchInfo?, masteredChroma: Boolean): Boolean {
+            if (info == null) return false
+            if (!(masteredChroma || noteIsSolid(info))) return false
+            if (info.attemptCount < TIMBRE_EXPAND_MIN_ATTEMPTS) return false
+            return masteredChroma || info.emaAccuracy >= ActivePitchSetManager.MASTERY_ACCURACY
+        }
+
+        fun timbrePoolFor(
+            info: ActivePitchInfo?,
+            masteredChroma: Boolean,
+            selected: List<String>
+        ): List<String> {
+            val choices = selected.filter { it.isNotBlank() }.ifEmpty { listOf("piano") }
+            val primary = choices.first()
+            if (choices.size == 1) return choices
+            if (!noteIsTimbreExpandReady(info, masteredChroma)) return listOf(primary)
+
+            val skills = info?.timbreSkills.orEmpty()
+            val unlocked = mutableListOf(primary)
+            for (i in 1 until choices.size) {
+                val previous = choices[i - 1]
+                if (instrumentMastered(skills[previous])) {
+                    unlocked.add(choices[i])
+                } else {
+                    break
+                }
+            }
+            return unlocked
+        }
+
+        fun pickTimbre(pool: List<String>, lastTimbre: String?, random: Random): String {
+            val choices = pool.filter { it.isNotBlank() }.ifEmpty { listOf("piano") }
+            if (choices.size == 1) return choices.first()
+            return choices.filter { it != lastTimbre }.randomOrNull(random) ?: choices.random(random)
+        }
+
         fun pickOctave(
             pool: List<Int>,
             lastOctave: Int?,
             preferMaxJump: Boolean,
             random: Random
         ): Int {
-            val choices = pool.ifEmpty { listOf(4) }
+            val choices = pool.ifEmpty { ANCHOR_OCTAVES }
             if (choices.size == 1) return choices.first()
             if (preferMaxJump) {
                 if (lastOctave == null) {
-                    // Bias to register extremes so the first mastered trial isn't mid-only.
                     val extremes = choices.filter { it == choices.minOrNull() || it == choices.maxOrNull() }
                     return extremes.random(random)
                 }
@@ -163,19 +223,16 @@ class LessonPlanner(
         }
     }
 
-    /** Back-compat overload used by older call sites / tests. */
     fun buildLesson(
         activePitches: List<ActivePitchInfo>,
         masteredPitches: List<NoteName>,
         primaryTimbre: String,
-        octaves: List<Int>,
         questionCount: Int,
         random: Random = Random.Default
     ): List<LessonQuestion> = buildLesson(
         activePitches = activePitches,
         masteredPitches = masteredPitches,
         timbres = listOf(primaryTimbre),
-        octaves = octaves,
         questionCount = questionCount,
         random = random
     )

@@ -25,4 +25,9 @@ class RootViewModel @Inject constructor(
     fun refreshOnboarded() {
         viewModelScope.launch { _onboarded.value = repository.isOnboarded() }
     }
+
+    /** Blocks until the onboarded flag is re-read — use after initializeUser. */
+    suspend fun refreshOnboardedNow() {
+        _onboarded.value = repository.isOnboarded()
+    }
 }

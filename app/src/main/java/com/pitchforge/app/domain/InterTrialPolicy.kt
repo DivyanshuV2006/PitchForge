@@ -3,15 +3,13 @@ package com.pitchforge.app.domain
 import kotlin.random.Random
 
 /**
- * Anti–relative-pitch timing: variable washout ISI, post-feedback masks, and occasional
- * cold-start probes (long silence so no recent pitch sits in echoic memory).
+ * Anti–relative-pitch timing: variable washout ISI and occasional cold-start probes
+ * (long silence so no recent pitch sits in echoic memory).
  */
 object InterTrialPolicy {
     const val ISI_MIN_MS = 1_500
     const val ISI_MAX_MS = 4_000
-    /** Short mask after the correct-note feedback replay. */
-    const val FEEDBACK_MASK_MS = 1_000
-    /** Let the reinforcement sample ring before masking it. */
+    /** Let the correct-note feedback reinforcement ring before Next is enabled. */
     const val FEEDBACK_REPLAY_SETTLE_MS = 800
     /** Brief noise before a cold-start silence window. */
     const val COLD_CLEAR_MS = 1_500

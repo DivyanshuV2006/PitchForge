@@ -16,8 +16,8 @@ import kotlinx.coroutines.launch
 import kotlin.random.Random
 import javax.inject.Inject
 
-enum class ChallengeType { GAUNTLET, TIMED, CHAOS }
-enum class ChallengePhase { IDLE, LOADING, READY, BUFFERING, ANSWERING, DONE }
+enum class ChallengeType { GAUNTLET, TIMED, CHAOS, PROOF }
+enum class ChallengePhase { IDLE, LOADING, READY, BUFFERING, ANSWERING, DONE, UNAVAILABLE }
 
 /**
  * Skill challenges (§2.6): harder, non-adaptive TEST modes. Deliberately isolated from the
@@ -37,13 +37,17 @@ data class ChallengeUiState(
     val currentTimbre: String? = null,
     val choices: List<NoteName> = NoteName.entries.sortedBy { it.semitone },
     /** True while a cluster distractor is playing between trials. */
-    val clusterWashout: Boolean = false
+    val clusterWashout: Boolean = false,
+    /** Mastered notes used for PROOF challenges (for copy + gating). */
+    val proofNotes: List<NoteName> = emptyList(),
+    val unavailableMessage: String? = null
 )
 
 @HiltViewModel
 class ChallengeViewModel @Inject constructor(
     private val notePlayer: NotePlayer,
-    private val settingsRepository: SettingsRepository
+    private val settingsRepository: SettingsRepository,
+    private val repository: com.pitchforge.app.data.PitchForgeRepository
 ) : ViewModel() {
 
     private data class Q(val note: NoteName, val octave: Int, val timbre: String)
@@ -63,9 +67,23 @@ class ChallengeViewModel @Inject constructor(
 
     fun start(type: ChallengeType) {
         val rng = Random(System.currentTimeMillis())
-        val count = if (type == ChallengeType.GAUNTLET) 20 else 12
+        val count = when (type) {
+            ChallengeType.GAUNTLET -> 20
+            ChallengeType.PROOF -> 12
+            else -> 12
+        }
         viewModelScope.launch {
             _state.value = ChallengeUiState(phase = ChallengePhase.LOADING, type = type)
+
+            val mastered = repository.masteredNotes()
+            if (type == ChallengeType.PROOF && mastered.isEmpty()) {
+                _state.value = ChallengeUiState(
+                    phase = ChallengePhase.UNAVAILABLE,
+                    type = type,
+                    unavailableMessage = "Master at least one note in lessons, then come prove you still own it."
+                )
+                return@launch
+            }
 
             val active = settingsRepository.current().activeTimbres
                 .filter { it.isNotBlank() }
@@ -73,20 +91,18 @@ class ChallengeViewModel @Inject constructor(
                 .ifEmpty { listOf("piano") }
             val primary = active.first()
 
-            // Wait until every selected instrument is fully decoded — otherwise Chaos
-            // silently falls back to sine / silence and looks like it "doesn't use" them.
             active.forEach { notePlayer.ensureLoaded(it, OCTAVES) }
 
-            questions = buildQuestions(type, count, active, primary, rng)
+            questions = buildQuestions(type, count, active, primary, mastered, rng)
             clusterWashoutIndices = InterTrialPolicy.pickClusterWashoutIndices(count, random = rng)
             val first = questions.firstOrNull()
-            // Always land on READY with a Play button — including Timed (no auto-jump).
             _state.value = ChallengeUiState(
                 phase = ChallengePhase.READY,
                 type = type,
                 total = count,
                 deadlineMs = if (type == ChallengeType.TIMED) TIMED_DEADLINE_MS else null,
-                currentTimbre = first?.timbre
+                currentTimbre = first?.timbre,
+                proofNotes = if (type == ChallengeType.PROOF) mastered else emptyList()
             )
         }
     }
@@ -96,16 +112,17 @@ class ChallengeViewModel @Inject constructor(
         count: Int,
         active: List<String>,
         primary: String,
+        mastered: List<NoteName>,
         rng: Random
     ): List<Q> {
         var lastTimbre: String? = null
         var lastOctave: Int? = null
+        val notePool = if (type == ChallengeType.PROOF) mastered else NoteName.entries
         return (0 until count).map {
             val timbre = when {
                 type != ChallengeType.CHAOS -> primary
                 active.size == 1 -> active.first()
                 else -> {
-                    // Force instrument changes between consecutive questions so Chaos is audible.
                     val pool = active.filter { it != lastTimbre }.ifEmpty { active }
                     pool.random(rng).also { lastTimbre = it }
                 }
@@ -117,7 +134,7 @@ class ChallengeViewModel @Inject constructor(
             }
             lastOctave = octave
             Q(
-                note = NoteName.entries.random(rng),
+                note = notePool.random(rng),
                 octave = octave,
                 timbre = timbre
             )
@@ -210,14 +227,19 @@ class ChallengeViewModel @Inject constructor(
     }
 
     fun reset() {
+        stopAudio()
+        _state.value = ChallengeUiState()
+    }
+
+    /** Cancel timers and silence any ringing tone / washout (Quit, tab switch, leave screen). */
+    fun stopAudio() {
         timerJob?.cancel()
         autoPlayJob?.cancel()
-        _state.value = ChallengeUiState()
+        notePlayer.stopAll()
     }
 
     override fun onCleared() {
         super.onCleared()
-        timerJob?.cancel()
-        autoPlayJob?.cancel()
+        stopAudio()
     }
 }

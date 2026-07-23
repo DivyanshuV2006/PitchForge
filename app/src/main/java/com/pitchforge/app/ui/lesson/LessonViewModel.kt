@@ -39,13 +39,19 @@ data class LessonSummary(
     val correctWithinDeadline: Int,
     val xpEarned: Int,
     val newlyUnlockedNote: NoteName?,
+    /** Notes that crossed the mastery threshold during this lesson. */
+    val newlyMasteredNotes: List<NoteName> = emptyList(),
+    /** One-line skill win for motivation (e.g. focus note %). */
+    val todayWin: String? = null,
     val level: Int = 1,
     val xpIntoLevel: Int = 0,
     val xpForNextLevel: Int = 100,
     val levelProgress: Float = 0f,
     val leveledUp: Boolean = false,
     /** True when this was the learner's first completed lesson today — nudge a second dose. */
-    val suggestSecondSession: Boolean = false
+    val suggestSecondSession: Boolean = false,
+    /** Per-note naming snapshot for the post-lesson “what changed” breakdown. */
+    val noteBreakdown: List<com.pitchforge.app.domain.NoteLessonDelta> = emptyList()
 )
 
 data class LessonUiState(
@@ -58,7 +64,7 @@ data class LessonUiState(
     val summary: LessonSummary? = null,
     /** Consecutive correct-within-deadline answers, for the streak/combo reward. */
     val combo: Int = 0,
-    /** Next is disabled until post-feedback noise mask finishes. */
+    /** Next is disabled until the correct-note feedback replay has settled. */
     val feedbackAdvanceEnabled: Boolean = false,
     val bufferMode: BufferMode = BufferMode.WASHOUT,
     /** Countdown seconds during cold-start silence; null otherwise. */
@@ -103,7 +109,7 @@ class LessonViewModel @Inject constructor(
                 _state.value = LessonUiState(phase = LessonPhase.EMPTY)
                 return@launch
             }
-            val timbres = repository.currentTimbres()
+            val timbres = repository.selectedTimbres()
             // Preload every instrument that might play this lesson (wait for SoundPool decode).
             timbres.forEach { notePlayer.ensureLoaded(it, PitchForgeRepository.AVAILABLE_OCTAVES) }
             val mastered = repository.masteredReviewPitches()
@@ -111,7 +117,6 @@ class LessonViewModel @Inject constructor(
                 activePitches = active,
                 masteredPitches = mastered,
                 timbres = timbres,
-                octaves = repository.currentOctaves(),
                 questionCount = 30
             )
             coldStartIndices = InterTrialPolicy.pickColdStartIndices(questions.size, random)
@@ -170,14 +175,12 @@ class LessonViewModel @Inject constructor(
 
     fun replayCurrentNote() {
         val q = questions.getOrNull(_state.value.questionIndex) ?: return
-        // Manual replay: re-run the post-feedback mask so Next stays honest.
         if (_state.value.phase == LessonPhase.FEEDBACK) {
             feedbackJob?.cancel()
             feedbackJob = viewModelScope.launch {
                 _state.value = _state.value.copy(feedbackAdvanceEnabled = false)
                 notePlayer.play(q.timbre, q.octave, q.note)
                 delay(InterTrialPolicy.FEEDBACK_REPLAY_SETTLE_MS.toLong())
-                notePlayer.playNoiseWashout(q.octave, InterTrialPolicy.FEEDBACK_MASK_MS)
                 if (_state.value.phase == LessonPhase.FEEDBACK) {
                     _state.value = _state.value.copy(feedbackAdvanceEnabled = true)
                 }
@@ -231,13 +234,13 @@ class LessonViewModel @Inject constructor(
             feedbackAdvanceEnabled = false
         )
 
-        // Encoding reinforcement, then mask the replay so it can't seed the next trial.
+        // Encoding reinforcement (correct-note replay). Inter-trial washout runs on Next,
+        // so we don't double up with a second noise burst here.
         feedbackJob?.cancel()
         feedbackJob = viewModelScope.launch {
             if (outcome.correct) delay(180)
             notePlayer.play(q.timbre, q.octave, q.note)
             delay(InterTrialPolicy.FEEDBACK_REPLAY_SETTLE_MS.toLong())
-            notePlayer.playNoiseWashout(q.octave, InterTrialPolicy.FEEDBACK_MASK_MS)
             if (_state.value.phase == LessonPhase.FEEDBACK) {
                 _state.value = _state.value.copy(feedbackAdvanceEnabled = true)
             }
@@ -314,13 +317,25 @@ class LessonViewModel @Inject constructor(
             val durationSec = (System.currentTimeMillis() - startWallClock) / 1000
             repository.completeSession(sessionId, durationSec)
             val unlocked = repository.maybeExpandActiveSet()
+            val masteredThisSession = repository.notesMasteredSince(startWallClock)
             val stats = repository.sessionSummary(sessionId)
+            val noteBreakdown = repository.sessionNoteBreakdown(sessionId)
 
             // Level: the just-finished session's XP is already in the total, so subtract it
             // to recover the pre-lesson total and detect whether this lesson leveled the user up.
             val totalAfter = repository.totalXp()
             val levelAfter = com.pitchforge.app.domain.LevelSystem.levelForXp(totalAfter)
             val levelBefore = com.pitchforge.app.domain.LevelSystem.levelForXp(totalAfter - stats.xp)
+
+            val todayWin = when {
+                masteredThisSession.isNotEmpty() ->
+                    "You mastered ${masteredThisSession.joinToString(", ") { it.label }}."
+                stats.accuracy >= 0.85f ->
+                    "Strong session — ${(stats.accuracy * 100).toInt()}% on time."
+                stats.correctWithinDeadline > 0 ->
+                    "${stats.correctWithinDeadline} clean hits locked in."
+                else -> null
+            }
 
             val summary = LessonSummary(
                 accuracy = stats.accuracy,
@@ -330,21 +345,30 @@ class LessonViewModel @Inject constructor(
                 correctWithinDeadline = stats.correctWithinDeadline,
                 xpEarned = stats.xp,
                 newlyUnlockedNote = unlocked,
+                newlyMasteredNotes = masteredThisSession,
+                todayWin = todayWin,
                 level = levelAfter.level,
                 xpIntoLevel = levelAfter.xpIntoLevel,
                 xpForNextLevel = levelAfter.xpForNextLevel,
                 levelProgress = levelAfter.progress,
                 leveledUp = levelAfter.level > levelBefore.level,
-                suggestSecondSession = repository.completedSessionsToday() <= 1
+                suggestSecondSession = repository.completedSessionsToday() <= 1,
+                noteBreakdown = noteBreakdown
             )
             _state.value = _state.value.copy(phase = LessonPhase.SUMMARY, summary = summary)
         }
     }
 
-    override fun onCleared() {
-        super.onCleared()
+    /** Cancel timers and silence any ringing tone / washout (system back, leave screen). */
+    fun stopAudio() {
         deadlineJob?.cancel()
         autoPlayJob?.cancel()
         feedbackJob?.cancel()
+        notePlayer.stopAll()
+    }
+
+    override fun onCleared() {
+        super.onCleared()
+        stopAudio()
     }
 }

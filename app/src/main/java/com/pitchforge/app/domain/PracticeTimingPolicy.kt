@@ -1,6 +1,7 @@
 package com.pitchforge.app.domain
 
 import java.time.Instant
+import java.time.LocalDate
 import java.time.ZoneId
 
 /**
@@ -41,6 +42,20 @@ object PracticeTimingPolicy {
         reminderCountOnDate: Int,
         today: String
     ): Int = if (reminderDate == today) reminderCountOnDate.coerceAtLeast(0) else 0
+
+    /**
+     * True when the learner last practiced before yesterday — i.e. they missed at least
+     * the previous calendar day (and possibly more).
+     */
+    fun missedPracticeYesterday(
+        lastPracticeIsoDate: String?,
+        today: LocalDate = LocalDate.now()
+    ): Boolean {
+        val last = lastPracticeIsoDate
+            ?.let { runCatching { LocalDate.parse(it) }.getOrNull() }
+            ?: return false
+        return last.isBefore(today.minusDays(1))
+    }
 
     /**
      * Most common local hour-of-day among [sessionStartEpochMs], falling back to
@@ -119,12 +134,17 @@ object PracticeTimingPolicy {
     fun habitNotificationCopy(
         preferredHour: Int,
         streak: Int,
-        hasPracticeHistory: Boolean = true
+        hasPracticeHistory: Boolean = true,
+        missedYesterday: Boolean = false
     ): Pair<String, String> {
         // preferredHour kept for call-site compatibility; copy is now randomized.
         @Suppress("UNUSED_VARIABLE")
         val ignored = preferredHour
-        val msg = NotificationCopy.habit(streak = streak, hasPracticeHistory = hasPracticeHistory)
+        val msg = NotificationCopy.habit(
+            streak = streak,
+            hasPracticeHistory = hasPracticeHistory,
+            missedYesterday = missedYesterday
+        )
         return msg.title to msg.body
     }
 

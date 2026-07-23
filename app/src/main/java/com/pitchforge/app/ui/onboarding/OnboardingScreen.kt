@@ -47,7 +47,7 @@ data class OnboardingPage(val title: String, val body: String)
 val pages = listOf(
     OnboardingPage(
         "Welcome to PitchForge",
-        "Perfect pitch — naming a note with no reference — can be learned by most adults with structured practice. This app is built on peer-reviewed research."
+        "Most adults improve a lot. Full 12-note absolute pitch is rare. Progress is real either way — this app is built on peer-reviewed research into adult AP learning."
     ),
     OnboardingPage(
         "How It Works",
@@ -55,7 +55,7 @@ val pages = listOf(
     ),
     OnboardingPage(
         "Practice Matters",
-        "Studies show meaningful gains take 12–40 hours over about 8 weeks. Aim for one 30-note lesson (~10–15 min) daily; an optional second short session later helps more than cramming."
+        "Everyone progresses at their own pace. Aim for one 30-note lesson (~10–15 min) daily; an optional second short session later helps more than cramming."
     ),
     OnboardingPage(
         "Diagnostic Test",
@@ -73,19 +73,17 @@ fun OnboardingScreen(
     if (diag.phase == DiagnosticPhase.INTRO) {
         IntroPager(
             skipping = diag.skipping,
-            onStartDiagnostic = { viewModel.beginDiagnostic() },
-            onSkip = { viewModel.skipOnboarding(onComplete) }
+            onStartDiagnostic = { viewModel.beginDiagnostic() }
         )
     } else {
-        DiagnosticFlow(diag, viewModel, onComplete)
+        DiagnosticFlow(diag = diag, viewModel = viewModel, onComplete = onComplete)
     }
 }
 
 @Composable
 private fun IntroPager(
     skipping: Boolean,
-    onStartDiagnostic: () -> Unit,
-    onSkip: () -> Unit
+    onStartDiagnostic: () -> Unit
 ) {
     var currentPage by remember { mutableIntStateOf(0) }
     Column(
@@ -146,12 +144,13 @@ private fun IntroPager(
                 fontWeight = FontWeight.SemiBold
             )
         }
+        // Skip only the intro copy — land on the Diagnostic Test page.
         if (currentPage < pages.lastIndex) {
-            TextButton(onClick = onSkip, enabled = !skipping) {
-                Text(
-                    if (skipping) "Setting up…" else stringResource(R.string.skip),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
+            TextButton(
+                onClick = { currentPage = pages.lastIndex },
+                enabled = !skipping
+            ) {
+                Text(stringResource(R.string.skip), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
         Spacer(Modifier.height(8.dp))
@@ -159,7 +158,11 @@ private fun IntroPager(
 }
 
 @Composable
-private fun DiagnosticFlow(diag: DiagnosticUiState, viewModel: OnboardingViewModel, onComplete: () -> Unit) {
+private fun DiagnosticFlow(
+    diag: DiagnosticUiState,
+    viewModel: OnboardingViewModel,
+    onComplete: () -> Unit
+) {
     Column(
         modifier = Modifier
             .fillMaxSize()
@@ -210,6 +213,7 @@ private fun DiagnosticFlow(diag: DiagnosticUiState, viewModel: OnboardingViewMod
                 Text("Listen, then name the note.\nNo feedback until the end.", textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.weight(1f))
             }
+            DiagnosticPhase.INTRO -> Unit
             else -> {
                 Spacer(Modifier.height(8.dp))
                 Text("Which note was that?", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center)
