@@ -174,14 +174,23 @@ private fun ChallengeBuffer(state: ChallengeUiState) {
         )
         Spacer(Modifier.height(16.dp))
         Text(
-            if (state.clusterWashout) "Scrambling last note…" else "Clearing last note…",
+            when {
+                state.coldStart -> "Cold start — clearing reference…"
+                state.clusterWashout -> "Scrambling last note…"
+                else -> "Clearing last note…"
+            },
             style = MaterialTheme.typography.titleMedium,
             color = MaterialTheme.colorScheme.onSurfaceVariant
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            if (state.clusterWashout) "Distractor cluster washout"
-            else "Variable noise washout (1.5–4s)",
+            when {
+                state.coldStart && state.coldStartSecondsLeft != null ->
+                    "Silence ${state.coldStartSecondsLeft}s — no pitch reference"
+                state.coldStart -> "Long silence so nothing sits in memory"
+                state.clusterWashout -> "Distractor cluster washout"
+                else -> "Variable noise washout (1.5–4s)"
+            },
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
             textAlign = TextAlign.Center

@@ -76,6 +76,17 @@ class SettingsViewModel @Inject constructor(
         }
     }
 
+    fun setBedtimeEnabled(enabled: Boolean) {
+        viewModelScope.launch { settingsRepository.setBedtimeEnabled(enabled) }
+    }
+
+    fun setBedtime(hour: Int, minute: Int) {
+        viewModelScope.launch {
+            val time = "%02d:%02d".format(hour.coerceIn(0, 23), minute.coerceIn(0, 59))
+            settingsRepository.setBedtime(time)
+        }
+    }
+
     fun setDarkMode(mode: String) {
         viewModelScope.launch { settingsRepository.setDarkMode(mode) }
     }

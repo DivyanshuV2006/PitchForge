@@ -24,6 +24,22 @@ class NoteSelector {
             activeSetSize >= 6 -> 3
             else -> 2
         }
+
+        /** Default EMA blend for ordinary trials. */
+        const val DEFAULT_EMA_ALPHA = 0.3f
+
+        /**
+         * Stronger EMA blend for the first trial of an adaptive lesson — that tone is a
+         * true cold start (no within-session pitch reference), so the outcome is a better
+         * absolute-pitch signal than mid-session answers.
+         */
+        const val SESSION_OPENING_EMA_ALPHA = 0.55f
+
+        /**
+         * Mastery-window weight for that same opening trial (counts as this many naming
+         * attempts toward the 3-day ≥95% gate). Session score / XP still count it once.
+         */
+        const val SESSION_OPENING_MASTERY_WEIGHT = 2
     }
 
     /**
@@ -91,7 +107,7 @@ class NoteSelector {
     fun computeEma(
         currentEma: Float,
         correct: Boolean,
-        alpha: Float = 0.3f
+        alpha: Float = DEFAULT_EMA_ALPHA
     ): Float {
         return (alpha * (if (correct) 1.0f else 0.0f)) + ((1.0f - alpha) * currentEma)
     }

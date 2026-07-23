@@ -223,7 +223,7 @@ class DashboardViewModel @Inject constructor(
                 streak = streak,
                 mastered = masteredCount,
                 shareText = buildString {
-                    appendLine("PitchForge — this week")
+                    appendLine("ChromaP — this week")
                     appendLine("🔥 $streak-day streak")
                     appendLine("📚 ${weekSessions.size} lessons")
                     if (weekAcc != null) appendLine("🎯 $weekAcc% on-time accuracy")

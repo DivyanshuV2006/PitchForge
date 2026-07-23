@@ -82,4 +82,16 @@ class NoteSelectorTest {
         // 0.3 * 0.0 + 0.7 * 0.5 = 0.0 + 0.35 = 0.35
         assertEquals(0.35f, result2, 0.001f)
     }
+
+    @Test
+    fun `session opening ema alpha pulls harder toward the outcome`() {
+        val baseline = 0.5f
+        val normal = selector.computeEma(baseline, true, NoteSelector.DEFAULT_EMA_ALPHA)
+        val opening = selector.computeEma(baseline, true, NoteSelector.SESSION_OPENING_EMA_ALPHA)
+        assertTrue(
+            "Opening cold-start should move EMA farther toward 1 than a normal trial ($opening vs $normal)",
+            opening > normal
+        )
+        assertEquals(2, NoteSelector.SESSION_OPENING_MASTERY_WEIGHT)
+    }
 }

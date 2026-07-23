@@ -5,7 +5,7 @@ package com.pitchforge.app.domain
  *
  * Study A / Van Hedger, Heald & Nusbaum (2019) trained on **seven** instrumental timbres
  * (160 notes total): piano, flute, guitar, cello, clarinet, harpsichord, and square wave.
- * PitchForge ships that full set (square synthesized; the rest as A440 WAV packs across
+ * ChromaP ships that full set (square synthesized; the rest as A440 WAV packs across
  * octaves 3–5) plus violin/trumpet/sine extras already used in training and challenges.
  */
 object TimbreCatalog {

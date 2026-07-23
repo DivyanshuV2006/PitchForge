@@ -121,12 +121,23 @@ interface QuestionAttemptDao {
     @Query("SELECT COUNT(*) FROM question_attempts WHERE sessionId = :sessionId")
     suspend fun countTotal(sessionId: Long): Int
 
-    /** Naming attempts for a note since [since] (mastery window). */
-    @Query("SELECT COUNT(*) FROM question_attempts WHERE noteName = :note AND taskType = 'NAMING' AND timestamp >= :since")
+    /** Naming attempts for a note since [since] (mastery window) — summed importance weights. */
+    @Query(
+        """
+        SELECT COALESCE(SUM(importanceWeight), 0) FROM question_attempts
+        WHERE noteName = :note AND taskType = 'NAMING' AND timestamp >= :since
+        """
+    )
     suspend fun countNamingSince(note: String, since: Long): Int
 
-    /** Of those, correct-within-deadline naming attempts since [since]. */
-    @Query("SELECT COUNT(*) FROM question_attempts WHERE noteName = :note AND taskType = 'NAMING' AND correctWithinDeadline = 1 AND timestamp >= :since")
+    /** Of those, correct-within-deadline weight sum since [since]. */
+    @Query(
+        """
+        SELECT COALESCE(SUM(importanceWeight), 0) FROM question_attempts
+        WHERE noteName = :note AND taskType = 'NAMING' AND correctWithinDeadline = 1
+          AND timestamp >= :since
+        """
+    )
     suspend fun countCorrectNamingSince(note: String, since: Long): Int
 }
 

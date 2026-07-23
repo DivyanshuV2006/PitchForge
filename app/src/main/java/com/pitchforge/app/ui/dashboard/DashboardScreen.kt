@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.pitchforge.app.domain.InterTrialPolicy
 import com.pitchforge.app.domain.MissionEngine
+import com.pitchforge.app.ui.theme.PitchForgeBrand
 import com.pitchforge.app.domain.NoteName
 import com.pitchforge.app.ui.components.FloatingNavBar
 import com.pitchforge.app.ui.components.FloatingNavDestination
@@ -150,7 +151,13 @@ fun DashboardScreen(
         topBar = {
             TopAppBar(
                 title = {
-                    Text("PitchForge", fontWeight = FontWeight.Bold, letterSpacing = 0.2.sp)
+                    Text(
+                        "ChromaP",
+                        fontFamily = PitchForgeBrand,
+                        fontWeight = FontWeight.Normal,
+                        fontSize = 26.sp,
+                        letterSpacing = (-0.2).sp
+                    )
                 },
                 actions = {
                     SettingsIconButton(onClick = onOpenSettings)

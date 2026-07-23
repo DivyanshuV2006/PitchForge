@@ -301,7 +301,7 @@ private fun WeeklyShareCard(week: WeeklyShareUi) {
                 onClick = {
                     val send = Intent(Intent.ACTION_SEND).apply {
                         type = "text/plain"
-                        putExtra(Intent.EXTRA_SUBJECT, "PitchForge this week")
+                        putExtra(Intent.EXTRA_SUBJECT, "ChromaP this week")
                         putExtra(Intent.EXTRA_TEXT, week.shareText)
                     }
                     context.startActivity(Intent.createChooser(send, "Share weekly progress"))

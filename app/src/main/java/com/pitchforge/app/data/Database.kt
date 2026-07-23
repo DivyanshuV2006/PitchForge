@@ -20,7 +20,7 @@ import androidx.sqlite.db.SupportSQLiteDatabase
         ApCheckupEntity::class,
         SettingsEntity::class
     ],
-    version = 5,
+    version = 6,
     exportSchema = false
 )
 abstract class PitchForgeDatabase : RoomDatabase() {
@@ -91,6 +91,14 @@ abstract class PitchForgeDatabase : RoomDatabase() {
                             avgErrorSemitones REAL NOT NULL
                         )
                         """.trimIndent()
+                    )
+                }
+            },
+            // v5 -> v6: weighted mastery contribution for session-opening cold-start trials.
+            object : Migration(5, 6) {
+                override fun migrate(db: SupportSQLiteDatabase) {
+                    db.execSQL(
+                        "ALTER TABLE question_attempts ADD COLUMN importanceWeight INTEGER NOT NULL DEFAULT 1"
                     )
                 }
             }

@@ -19,7 +19,8 @@ import java.time.ZoneId
  * 1) Habit reminder: once/day in the user's observed practice hour (fallback: Settings time),
  *    only if they haven't practiced yet and it's outside quiet hours.
  * 2) Spaced-review due: once/day when mastered notes are due for review.
- * 3) Second-session dose: once/day if they already did one lesson and it's afternoon/evening.
+ * 3) Second-session dose: once/day if they already did one lesson — either in the
+ *    default afternoon/evening window, or ~10 minutes before an optional bedtime.
  */
 @HiltWorker
 class ReminderWorker @AssistedInject constructor(
@@ -40,7 +41,7 @@ class ReminderWorker @AssistedInject constructor(
 
         maybeHabitReminder(settings, today, hour, zone)
         maybeReviewReminder(settings.lastReviewReminderDate, today, hour)
-        maybeSecondSessionReminder(settings.lastSecondSessionReminderDate, today, hour)
+        maybeSecondSessionReminder(settings, today, hour, now.minute)
 
         return Result.success()
     }
@@ -106,13 +107,24 @@ class ReminderWorker @AssistedInject constructor(
     }
 
     private suspend fun maybeSecondSessionReminder(
-        lastReminderDate: String?,
+        settings: com.pitchforge.app.data.AppSettings,
         today: String,
-        hour: Int
+        hour: Int,
+        minute: Int
     ) {
         val sessions = repository.completedSessionsToday()
-        val already = lastReminderDate == today
-        if (!PracticeTimingPolicy.shouldSendSecondSessionReminder(hour, sessions, already)) return
+        val already = settings.lastSecondSessionReminderDate == today
+        if (!PracticeTimingPolicy.shouldSendSecondSessionReminder(
+                currentHour = hour,
+                sessionsCompletedToday = sessions,
+                alreadyRemindedToday = already,
+                bedtimeEnabled = settings.bedtimeEnabled,
+                bedtime = settings.bedtime,
+                currentMinute = minute
+            )
+        ) {
+            return
+        }
 
         val (title, text) = PracticeTimingPolicy.secondSessionNotificationCopy()
         Notifications.post(applicationContext, Notifications.ID_SECOND_SESSION, title, text)

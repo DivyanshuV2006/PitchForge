@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Matches the app's ink studio background (Theme.kt Ink). -->
-    <color name="ic_launcher_background">#0E0B08</color>
-    <color name="ic_launcher_accent">#FFB300</color>
-    <color name="ic_launcher_accent_soft">#FFE082</color>
-    <color name="ic_launcher_on_dark">#F3EBE0</color>
+    <!-- Matches the ChromaP icon charcoal plate. -->
+    <color name="ic_launcher_background">#17181C</color>
+    <color name="ic_launcher_accent">#158844</color>
+    <color name="ic_launcher_accent_soft">#39D67A</color>
+    <color name="ic_launcher_on_dark">#E8ECEF</color>
 </resources>

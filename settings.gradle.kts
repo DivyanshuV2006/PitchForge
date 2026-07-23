@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "PitchForge"
+rootProject.name = "ChromaP"
 include(":app")

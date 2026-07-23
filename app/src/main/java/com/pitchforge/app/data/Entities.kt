@@ -76,7 +76,12 @@ data class QuestionAttemptEntity(
     val deadlineMsAtTrial: Int = 4000,
     val responseTimeMs: Long = 0,
     val audioOnsetTimestamp: Long = 0,
-    val timestamp: Long = System.currentTimeMillis()
+    val timestamp: Long = System.currentTimeMillis(),
+    /**
+     * How heavily this attempt counts in the mastery window (≥1). Session tallies /
+     * missions still treat each row as one trial. Opening cold-start trials use 2+.
+     */
+    val importanceWeight: Int = 1
 )
 
 @Entity(tableName = "generalization_probes")

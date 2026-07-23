@@ -38,6 +38,10 @@ data class ChallengeUiState(
     val choices: List<NoteName> = NoteName.entries.sortedBy { it.semitone },
     /** True while a cluster distractor is playing between trials. */
     val clusterWashout: Boolean = false,
+    /** True while a cold-start silence window is running between trials. */
+    val coldStart: Boolean = false,
+    /** Seconds remaining in the cold-start silence (UI countdown). */
+    val coldStartSecondsLeft: Int? = null,
     /** Mastered notes used for PROOF challenges (for copy + gating). */
     val proofNotes: List<NoteName> = emptyList(),
     val unavailableMessage: String? = null
@@ -53,6 +57,7 @@ class ChallengeViewModel @Inject constructor(
     private data class Q(val note: NoteName, val octave: Int, val timbre: String)
 
     private var questions: List<Q> = emptyList()
+    private var coldStartIndices: Set<Int> = emptySet()
     private var clusterWashoutIndices: Set<Int> = emptySet()
     private var timerJob: Job? = null
     private var autoPlayJob: Job? = null
@@ -94,7 +99,12 @@ class ChallengeViewModel @Inject constructor(
             active.forEach { notePlayer.ensureLoaded(it, OCTAVES) }
 
             questions = buildQuestions(type, count, active, primary, mastered, rng)
-            clusterWashoutIndices = InterTrialPolicy.pickClusterWashoutIndices(count, random = rng)
+            coldStartIndices = InterTrialPolicy.pickColdStartIndices(count, random = rng)
+            clusterWashoutIndices = InterTrialPolicy.pickClusterWashoutIndices(
+                questionCount = count,
+                avoid = coldStartIndices,
+                random = rng
+            )
             val first = questions.firstOrNull()
             _state.value = ChallengeUiState(
                 phase = ChallengePhase.READY,
@@ -148,7 +158,9 @@ class ChallengeViewModel @Inject constructor(
         _state.value = _state.value.copy(
             phase = ChallengePhase.ANSWERING,
             currentTimbre = q.timbre,
-            clusterWashout = false
+            clusterWashout = false,
+            coldStart = false,
+            coldStartSecondsLeft = null
         )
 
         // TIMED mode: enforce the deadline. If it elapses while still answering the same
@@ -181,26 +193,34 @@ class ChallengeViewModel @Inject constructor(
         val type = _state.value.type
         if (next < questions.size) {
             val nextQ = questions[next]
-            val useCluster = next in clusterWashoutIndices
+            val useCold = next in coldStartIndices
+            val useCluster = !useCold && next in clusterWashoutIndices
             _state.value = _state.value.copy(
                 phase = ChallengePhase.BUFFERING,
                 index = next,
                 correct = nowCorrect,
                 timedOut = nowTimedOut,
                 currentTimbre = nextQ.timbre,
-                clusterWashout = useCluster
+                clusterWashout = useCluster,
+                coldStart = useCold,
+                coldStartSecondsLeft = null
             )
             autoPlayJob?.cancel()
             autoPlayJob = viewModelScope.launch {
                 val prevOctave = questions.getOrNull(i)?.octave ?: 4
-                val isi = InterTrialPolicy.randomIsiMs(random)
-                if (useCluster) {
-                    notePlayer.playClusterWashout(
-                        octave = prevOctave,
-                        durationMs = isi.coerceAtLeast(InterTrialPolicy.CLUSTER_MS)
-                    )
-                } else {
-                    notePlayer.playNoiseWashout(octave = prevOctave, durationMs = isi)
+                when {
+                    useCold -> runColdStartBuffer(prevOctave, next)
+                    useCluster -> {
+                        val isi = InterTrialPolicy.randomIsiMs(random)
+                        notePlayer.playClusterWashout(
+                            octave = prevOctave,
+                            durationMs = isi.coerceAtLeast(InterTrialPolicy.CLUSTER_MS)
+                        )
+                    }
+                    else -> {
+                        val isi = InterTrialPolicy.randomIsiMs(random)
+                        notePlayer.playNoiseWashout(octave = prevOctave, durationMs = isi)
+                    }
                 }
                 if (_state.value.phase != ChallengePhase.BUFFERING || _state.value.index != next) {
                     return@launch
@@ -211,7 +231,9 @@ class ChallengeViewModel @Inject constructor(
                 } else {
                     _state.value = _state.value.copy(
                         phase = ChallengePhase.READY,
-                        clusterWashout = false
+                        clusterWashout = false,
+                        coldStart = false,
+                        coldStartSecondsLeft = null
                     )
                 }
             }
@@ -221,9 +243,26 @@ class ChallengeViewModel @Inject constructor(
                 index = next,
                 correct = nowCorrect,
                 timedOut = nowTimedOut,
-                clusterWashout = false
+                clusterWashout = false,
+                coldStart = false,
+                coldStartSecondsLeft = null
             )
         }
+    }
+
+    private suspend fun runColdStartBuffer(prevOctave: Int, nextIndex: Int) {
+        notePlayer.playNoiseWashout(prevOctave, InterTrialPolicy.COLD_CLEAR_MS)
+        if (_state.value.phase != ChallengePhase.BUFFERING || _state.value.index != nextIndex) return
+
+        val silenceMs = InterTrialPolicy.randomColdSilenceMs(random)
+        var left = (silenceMs + 999) / 1000
+        while (left > 0) {
+            if (_state.value.phase != ChallengePhase.BUFFERING || _state.value.index != nextIndex) return
+            _state.value = _state.value.copy(coldStartSecondsLeft = left)
+            delay(1_000)
+            left--
+        }
+        _state.value = _state.value.copy(coldStartSecondsLeft = null)
     }
 
     fun reset() {

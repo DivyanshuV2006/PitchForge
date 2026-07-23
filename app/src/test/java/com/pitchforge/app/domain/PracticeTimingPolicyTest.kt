@@ -207,4 +207,69 @@ class PracticeTimingPolicyTest {
             )
         )
     }
+
+    @Test
+    fun `bedtime mode targets ten minutes before sleep`() {
+        assertEquals(
+            java.time.LocalTime.of(22, 20),
+            PracticeTimingPolicy.secondSessionTargetFromBedtime("22:30")
+        )
+        assertEquals(
+            java.time.LocalTime.of(21, 50),
+            PracticeTimingPolicy.secondSessionTargetFromBedtime("22:00")
+        )
+        // Crossing midnight
+        assertEquals(
+            java.time.LocalTime.of(23, 55),
+            PracticeTimingPolicy.secondSessionTargetFromBedtime("00:05")
+        )
+    }
+
+    @Test
+    fun `bedtime second session fires in catch window near target`() {
+        // Bedtime 22:30 → target 22:20. Worker at 22:35 should fire.
+        assertTrue(
+            PracticeTimingPolicy.shouldSendSecondSessionReminder(
+                currentHour = 22,
+                currentMinute = 35,
+                sessionsCompletedToday = 1,
+                alreadyRemindedToday = false,
+                bedtimeEnabled = true,
+                bedtime = "22:30"
+            )
+        )
+        // Too early
+        assertFalse(
+            PracticeTimingPolicy.shouldSendSecondSessionReminder(
+                currentHour = 21,
+                currentMinute = 0,
+                sessionsCompletedToday = 1,
+                alreadyRemindedToday = false,
+                bedtimeEnabled = true,
+                bedtime = "22:30"
+            )
+        )
+        // Outside catch window (more than 60 min after target)
+        assertFalse(
+            PracticeTimingPolicy.shouldSendSecondSessionReminder(
+                currentHour = 23,
+                currentMinute = 30,
+                sessionsCompletedToday = 1,
+                alreadyRemindedToday = false,
+                bedtimeEnabled = true,
+                bedtime = "22:30"
+            )
+        )
+        // Default afternoon window must not apply when bedtime mode is on
+        assertFalse(
+            PracticeTimingPolicy.shouldSendSecondSessionReminder(
+                currentHour = 17,
+                currentMinute = 0,
+                sessionsCompletedToday = 1,
+                alreadyRemindedToday = false,
+                bedtimeEnabled = true,
+                bedtime = "22:30"
+            )
+        )
+    }
 }

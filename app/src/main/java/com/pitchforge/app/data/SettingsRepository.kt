@@ -23,6 +23,13 @@ data class AppSettings(
     val activeTimbres: List<String> = listOf("piano", "sine"),
     val notificationsEnabled: Boolean = true,
     val reminderTime: String = "18:00",
+    /**
+     * When true, the optional second-lesson nudge fires ~10 minutes before [bedtime]
+     * instead of the default afternoon/evening window.
+     */
+    val bedtimeEnabled: Boolean = false,
+    /** Local bedtime as `HH:mm` (24h). Only used when [bedtimeEnabled] is true. */
+    val bedtime: String = "22:30",
     val volume: Float = 0.8f,
     val darkMode: String = "system", // "light" | "dark" | "system"
     /** Cosmetic color pack id — see [com.pitchforge.app.domain.CosmeticTheme]. */
@@ -52,6 +59,8 @@ class SettingsRepository @Inject constructor(
         val TIMBRES = stringPreferencesKey("active_timbres")
         val NOTIFS = booleanPreferencesKey("notifications_enabled")
         val REMINDER = stringPreferencesKey("reminder_time")
+        val BEDTIME_ENABLED = booleanPreferencesKey("bedtime_enabled")
+        val BEDTIME = stringPreferencesKey("bedtime")
         val VOLUME = floatPreferencesKey("volume")
         val DARK = stringPreferencesKey("dark_mode")
         val THEME_ID = stringPreferencesKey("theme_id")
@@ -72,6 +81,8 @@ class SettingsRepository @Inject constructor(
         activeTimbres = (this[Keys.TIMBRES] ?: "piano,sine").split(",").filter { it.isNotBlank() },
         notificationsEnabled = this[Keys.NOTIFS] ?: true,
         reminderTime = this[Keys.REMINDER] ?: "18:00",
+        bedtimeEnabled = this[Keys.BEDTIME_ENABLED] ?: false,
+        bedtime = this[Keys.BEDTIME] ?: "22:30",
         volume = this[Keys.VOLUME] ?: 0.8f,
         darkMode = this[Keys.DARK] ?: "system",
         themeId = this[Keys.THEME_ID] ?: "studio",
@@ -96,6 +107,12 @@ class SettingsRepository @Inject constructor(
 
     suspend fun setReminderTime(time: String) =
         context.dataStore.edit { it[Keys.REMINDER] = time }
+
+    suspend fun setBedtimeEnabled(enabled: Boolean) =
+        context.dataStore.edit { it[Keys.BEDTIME_ENABLED] = enabled }
+
+    suspend fun setBedtime(time: String) =
+        context.dataStore.edit { it[Keys.BEDTIME] = time }
 
     suspend fun setVolume(volume: Float) =
         context.dataStore.edit { it[Keys.VOLUME] = volume }

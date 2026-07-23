@@ -2,6 +2,7 @@ package com.pitchforge.app.domain
 
 import java.time.Instant
 import java.time.LocalDate
+import java.time.LocalTime
 import java.time.ZoneId
 
 /**
@@ -19,6 +20,18 @@ object PracticeTimingPolicy {
 
     /** Fallback hour label when Settings parse fails (not used for no-history sends). */
     const val DEFAULT_HABIT_HOUR = 18
+
+    /** Default bedtime (`HH:mm`) when the optional bedtime toggle is first enabled. */
+    const val DEFAULT_BEDTIME = "22:30"
+
+    /** Second-lesson nudge fires this many minutes before the user's bedtime. */
+    const val SECOND_SESSION_LEAD_MINUTES = 10
+
+    /**
+     * Catch window after the bedtime target (minutes). The reminder worker runs about
+     * hourly with WorkManager flex, so we accept any tick in this window once per day.
+     */
+    const val SECOND_SESSION_CATCH_WINDOW_MINUTES = 60
 
     /**
      * When the user has no completed-lesson history yet, the *first* habit reminder may fire
@@ -79,6 +92,25 @@ object PracticeTimingPolicy {
         val hour = reminderTime.substringBefore(':').toIntOrNull() ?: DEFAULT_HABIT_HOUR
         return hour.coerceIn(0, 23)
     }
+
+    /** Parses `HH:mm` (24h); falls back to [DEFAULT_BEDTIME] on bad input. */
+    fun parseLocalTime(time: String, fallback: String = DEFAULT_BEDTIME): LocalTime {
+        fun tryParse(raw: String): LocalTime? {
+            val parts = raw.split(':')
+            val hour = parts.getOrNull(0)?.toIntOrNull() ?: return null
+            val minute = parts.getOrNull(1)?.toIntOrNull() ?: 0
+            if (hour !in 0..23 || minute !in 0..59) return null
+            return LocalTime.of(hour, minute)
+        }
+        return tryParse(time) ?: tryParse(fallback) ?: LocalTime.of(22, 30)
+    }
+
+    fun formatLocalTime(time: LocalTime): String =
+        "%02d:%02d".format(time.hour, time.minute)
+
+    /** Local clock time for the bedtime second-session nudge. */
+    fun secondSessionTargetFromBedtime(bedtime: String): LocalTime =
+        parseLocalTime(bedtime).minusMinutes(SECOND_SESSION_LEAD_MINUTES.toLong())
 
     fun isQuietHour(hour: Int): Boolean {
         val h = hour.coerceIn(0, 23)
@@ -154,15 +186,31 @@ object PracticeTimingPolicy {
     }
 
     /**
-     * Optional second-session nudge: after one lesson today, remind later (afternoon/evening)
-     * that a second short block helps retention — once per day, outside quiet hours.
+     * Optional second-session nudge after exactly one lesson today — once per day.
+     *
+     * - Bedtime mode off: afternoon/evening window (15–20), skipping quiet hours.
+     * - Bedtime mode on: ~[SECOND_SESSION_LEAD_MINUTES] before [bedtime], within a
+     *   [SECOND_SESSION_CATCH_WINDOW_MINUTES] catch window (quiet hours do not apply —
+     *   the user opted into a near-sleep ping).
      */
     fun shouldSendSecondSessionReminder(
         currentHour: Int,
         sessionsCompletedToday: Int,
-        alreadyRemindedToday: Boolean
+        alreadyRemindedToday: Boolean,
+        bedtimeEnabled: Boolean = false,
+        bedtime: String = DEFAULT_BEDTIME,
+        currentMinute: Int = 0
     ): Boolean {
         if (sessionsCompletedToday != 1 || alreadyRemindedToday) return false
+
+        if (bedtimeEnabled) {
+            val target = secondSessionTargetFromBedtime(bedtime)
+            val nowMins = currentHour.coerceIn(0, 23) * 60 + currentMinute.coerceIn(0, 59)
+            val targetMins = target.hour * 60 + target.minute
+            val delta = ((nowMins - targetMins) + 24 * 60) % (24 * 60)
+            return delta in 0 until SECOND_SESSION_CATCH_WINDOW_MINUTES
+        }
+
         if (isQuietHour(currentHour)) return false
         // Prefer late afternoon / early evening so it isn't stacked on the habit hour.
         return currentHour in 15..20

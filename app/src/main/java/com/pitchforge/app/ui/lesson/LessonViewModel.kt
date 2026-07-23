@@ -220,7 +220,8 @@ class LessonViewModel @Inject constructor(
                 outcome = outcome,
                 userAnswerLabel = answerLabel,
                 responseTimeMs = rt,
-                audioOnsetTimestamp = trialTimer.audioOnsetTimestamp
+                audioOnsetTimestamp = trialTimer.audioOnsetTimestamp,
+                sessionOpening = _state.value.questionIndex == 0
             )
         }
 

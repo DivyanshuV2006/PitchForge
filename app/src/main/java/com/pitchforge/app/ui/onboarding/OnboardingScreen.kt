@@ -46,7 +46,7 @@ data class OnboardingPage(val title: String, val body: String)
 
 val pages = listOf(
     OnboardingPage(
-        "Welcome to PitchForge",
+        "Welcome to ChromaP",
         "Most adults improve a lot. Full 12-note absolute pitch is rare. Progress is real either way — this app is built on peer-reviewed research into adult AP learning."
     ),
     OnboardingPage(

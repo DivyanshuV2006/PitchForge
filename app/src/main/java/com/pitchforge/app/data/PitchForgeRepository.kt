@@ -165,8 +165,15 @@ class PitchForgeRepository @Inject constructor(
         outcome: AnswerOutcome,
         userAnswerLabel: String?,
         responseTimeMs: Long,
-        audioOnsetTimestamp: Long
+        audioOnsetTimestamp: Long,
+        /** First trial of an adaptive lesson — true cold start, judged more heavily. */
+        sessionOpening: Boolean = false
     ) {
+        val weight = if (sessionOpening) {
+            NoteSelector.SESSION_OPENING_MASTERY_WEIGHT
+        } else {
+            1
+        }
         questionAttemptDao.insertAttempt(
             QuestionAttemptEntity(
                 sessionId = sessionId,
@@ -180,24 +187,38 @@ class PitchForgeRepository @Inject constructor(
                 errorSemitones = outcome.errorSemitones,
                 deadlineMsAtTrial = question.deadlineMs,
                 responseTimeMs = responseTimeMs,
-                audioOnsetTimestamp = audioOnsetTimestamp
+                audioOnsetTimestamp = audioOnsetTimestamp,
+                importanceWeight = weight
             )
         )
-        updatePitchProgress(question, outcome)
-        updateNoteStat(question, outcome)
+        updatePitchProgress(question, outcome, sessionOpening)
+        updateNoteStat(question, outcome, sessionOpening)
     }
 
-    private suspend fun updatePitchProgress(question: LessonQuestion, outcome: AnswerOutcome) {
+    private suspend fun updatePitchProgress(
+        question: LessonQuestion,
+        outcome: AnswerOutcome,
+        sessionOpening: Boolean
+    ) {
         val existing = pitchProgressDao.getProgress(question.note.label) ?: return
         val now = System.currentTimeMillis()
+        val alpha = if (sessionOpening) {
+            NoteSelector.SESSION_OPENING_EMA_ALPHA
+        } else {
+            NoteSelector.DEFAULT_EMA_ALPHA
+        }
 
         // Overall accuracy (all task types) drives selection weighting.
-        val emaAll = noteSelector.computeEma(existing.emaAccuracyAll, outcome.correct)
+        val emaAll = noteSelector.computeEma(existing.emaAccuracyAll, outcome.correct, alpha)
 
         // Mastery accuracy only tracks NAMING attempts within the deadline (§2.4b, test #15).
         val isNaming = question.taskType == TaskType.NAMING
         val emaMastery = if (isNaming) {
-            noteSelector.computeEma(existing.emaAccuracyWithinDeadline, outcome.correctWithinDeadline)
+            noteSelector.computeEma(
+                existing.emaAccuracyWithinDeadline,
+                outcome.correctWithinDeadline,
+                alpha
+            )
         } else {
             existing.emaAccuracyWithinDeadline
         }
@@ -258,12 +279,22 @@ class PitchForgeRepository @Inject constructor(
         if (justMastered) scheduleRetentionChecks(question.note.label, now)
     }
 
-    private suspend fun updateNoteStat(question: LessonQuestion, outcome: AnswerOutcome) {
+    private suspend fun updateNoteStat(
+        question: LessonQuestion,
+        outcome: AnswerOutcome,
+        sessionOpening: Boolean
+    ) {
         val existing = noteStatDao.getStat(question.note.label, question.timbre)
+        val alpha = if (sessionOpening) {
+            NoteSelector.SESSION_OPENING_EMA_ALPHA
+        } else {
+            NoteSelector.DEFAULT_EMA_ALPHA
+        }
         // Within-deadline accuracy so instrument mastery matches the rest of the AP engine.
         val emaAcc = noteSelector.computeEma(
             existing?.emaAccuracy ?: 0.5f,
-            outcome.correctWithinDeadline
+            outcome.correctWithinDeadline,
+            alpha
         )
         val emaErr = 0.3f * outcome.errorSemitones + 0.7f * (existing?.emaErrorSemitones ?: 0f)
         noteStatDao.upsertStat(

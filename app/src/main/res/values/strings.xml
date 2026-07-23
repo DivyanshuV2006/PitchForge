@@ -1,9 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="app_name">PitchForge</string>
+    <string name="app_name">ChromaP</string>
 
     <!-- Onboarding -->
-    <string name="onboarding_welcome_title">Welcome to PitchForge</string>
+    <string name="onboarding_welcome_title">Welcome to ChromaP</string>
     <string name="onboarding_welcome_body">Perfect pitch — the ability to name a note without a reference — can be learned by most adults with structured training. This app is based on peer-reviewed research.</string>
     <string name="onboarding_how_title">How It Works</string>
     <string name="onboarding_how_body">You\'ll hear a note, identify it, and get immediate feedback. The app adapts to your progress: starting with 3 notes, expanding as you master them.</string>
@@ -55,5 +55,5 @@
 
     <!-- Science attribution -->
     <string name="about_science">About the Science</string>
-    <string name="about_science_body">PitchForge\'s training method is drawn from published research on adult absolute pitch acquisition. Studies show that AP is learnable-in-part by most adults with sustained training, and fully learnable by some. For details, see: Wong et al. (2019, 2020, 2025).</string>
+    <string name="about_science_body">ChromaP\'s training method is drawn from published research on adult absolute pitch acquisition. Studies show that AP is learnable-in-part by most adults with sustained training, and fully learnable by some. For details, see: Wong et al. (2019, 2020, 2025).</string>
 </resources>
