@@ -1,0 +1,700 @@
+package com.pitchforge.app.ui.dashboard
+
+import android.Manifest
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.hilt.navigation.compose.hiltViewModel
+import com.pitchforge.app.domain.InterTrialPolicy
+import com.pitchforge.app.domain.MissionEngine
+import com.pitchforge.app.domain.NoteName
+import com.pitchforge.app.ui.components.AccuracyAreaChart
+import com.pitchforge.app.ui.components.GoalRing
+import com.pitchforge.app.ui.components.SectionHeader
+import com.pitchforge.app.ui.components.StatChip
+import com.pitchforge.app.ui.components.rememberSmoothFlingBehavior
+import kotlinx.coroutines.delay
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun DashboardScreen(
+    onStartLesson: () -> Unit,
+    onOpenSettings: () -> Unit,
+    onOpenChallenge: () -> Unit,
+    onOpenCheckup: () -> Unit,
+    onOpenGeneralization: () -> Unit,
+    onOpenRetention: () -> Unit,
+    viewModel: DashboardViewModel = hiltViewModel()
+) {
+    val state by viewModel.state.collectAsState()
+    val listState = rememberLazyListState()
+    val flingBehavior = rememberSmoothFlingBehavior()
+    var showHardDoseDialog by remember { mutableStateOf(false) }
+    var showCooldownDialog by remember { mutableStateOf(false) }
+    var nowMs by remember { mutableStateOf(System.currentTimeMillis()) }
+
+    val gate = InterTrialPolicy.sessionGate(
+        lessonsCompletedToday = state.lessonsCompletedToday,
+        lastCompletedAtMs = state.lastLessonCompletedAtMs,
+        nowMs = nowMs
+    )
+    val cooldownLeft = InterTrialPolicy.cooldownRemainingMs(state.lastLessonCompletedAtMs, nowMs)
+
+    // Refresh missions whenever the dashboard is shown (e.g. after finishing a lesson).
+    LaunchedEffect(Unit) {
+        viewModel.refreshMissions()
+        viewModel.refreshTrainedTimbres()
+    }
+
+    // Tick the cooldown clock once per second while waiting.
+    LaunchedEffect(gate, state.lastLessonCompletedAtMs) {
+        while (true) {
+            nowMs = System.currentTimeMillis()
+            val left = InterTrialPolicy.cooldownRemainingMs(state.lastLessonCompletedAtMs, nowMs)
+            val capped = state.lessonsCompletedToday >= InterTrialPolicy.DAILY_LESSON_HARD_CAP
+            if (capped || left <= 0L) break
+            delay(1_000)
+        }
+        nowMs = System.currentTimeMillis()
+    }
+
+    // Ask for notification permission post-onboarding, once value has been shown (§2.1).
+    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    LaunchedEffect(Unit) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            permissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    if (showCooldownDialog) {
+        AlertDialog(
+            onDismissRequest = { showCooldownDialog = false },
+            title = { Text("Session cooldown") },
+            text = {
+                Text(
+                    "Wait ${InterTrialPolicy.formatCooldown(cooldownLeft)} before the next lesson. " +
+                        "Spacing sessions (~20 min) beats back-to-back cramming. " +
+                        "${state.lessonsCompletedToday}/${InterTrialPolicy.DAILY_LESSON_HARD_CAP} used today."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showCooldownDialog = false }) { Text("OK") }
+            }
+        )
+    }
+    if (showHardDoseDialog) {
+        AlertDialog(
+            onDismissRequest = { showHardDoseDialog = false },
+            title = { Text("Daily dose complete") },
+            text = {
+                Text(
+                    "Cap is ${InterTrialPolicy.DAILY_LESSON_HARD_CAP} adaptive lessons per day. " +
+                        "Come back tomorrow — challenges and probes are still available."
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = { showHardDoseDialog = false }) { Text("OK") }
+            }
+        )
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = {
+                    Text("PitchForge", fontWeight = FontWeight.Bold, letterSpacing = 0.2.sp)
+                },
+                // Action sits at the end (right), clear of the centered front-camera punch-out.
+                actions = {
+                    TextButton(
+                        onClick = onOpenSettings,
+                        modifier = Modifier
+                            .padding(end = 8.dp)
+                            .border(
+                                width = 1.dp,
+                                color = MaterialTheme.colorScheme.outline,
+                                shape = RoundedCornerShape(12.dp)
+                            )
+                    ) {
+                        Text("Settings")
+                    }
+                },
+                colors = TopAppBarDefaults.topAppBarColors(
+                    containerColor = Color.Transparent,
+                    scrolledContainerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
+                    titleContentColor = MaterialTheme.colorScheme.onBackground
+                )
+            )
+        },
+        floatingActionButton = {
+            val blocked = gate != InterTrialPolicy.SessionGate.AVAILABLE
+            ExtendedFloatingActionButton(
+                onClick = {
+                    when (gate) {
+                        InterTrialPolicy.SessionGate.DOSE_COMPLETE -> showHardDoseDialog = true
+                        InterTrialPolicy.SessionGate.COOLDOWN -> showCooldownDialog = true
+                        InterTrialPolicy.SessionGate.AVAILABLE -> onStartLesson()
+                    }
+                },
+                containerColor = if (blocked) {
+                    MaterialTheme.colorScheme.surfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.primary
+                },
+                contentColor = if (blocked) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onPrimary
+                }
+            ) {
+                Text(
+                    when (gate) {
+                        InterTrialPolicy.SessionGate.DOSE_COMPLETE -> "Dose complete"
+                        InterTrialPolicy.SessionGate.COOLDOWN ->
+                            "Wait ${InterTrialPolicy.formatCooldown(cooldownLeft)}"
+                        InterTrialPolicy.SessionGate.AVAILABLE ->
+                            if (state.lessonsCompletedToday > 0) {
+                                "Start Lesson · ${state.lessonsCompletedToday}/${InterTrialPolicy.DAILY_LESSON_HARD_CAP}"
+                            } else {
+                                "Start Lesson"
+                            }
+                    },
+                    modifier = Modifier.padding(horizontal = 12.dp),
+                    fontWeight = FontWeight.SemiBold
+                )
+            }
+        }
+    ) { padding ->
+        LazyColumn(
+            state = listState,
+            flingBehavior = flingBehavior,
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(top = 4.dp, bottom = 96.dp)
+        ) {
+            // Goal hero
+            item { GoalHero(state) }
+
+            // Level / XP progress
+            item { LevelCard(state) }
+
+            // 12-note collection + accuracy in one grid
+            if (state.collection.isNotEmpty()) {
+                item {
+                    DashboardCard {
+                        SectionHeader(
+                            "Your 12 notes",
+                            "Check = mastered · tint = recent accuracy"
+                        )
+                        Spacer(Modifier.height(12.dp))
+                        NoteCollectionGrid(
+                            collection = state.collection,
+                            noteAccuracy = state.noteAccuracy
+                        )
+                    }
+                }
+            }
+
+            // Quick stats
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    StatChip("${state.currentStreak}", "day streak", Modifier.weight(1f))
+                    StatChip("${state.totalLessons}", "lessons", Modifier.weight(1f))
+                    StatChip(if (state.totalLessons > 0) "${(state.overallAccuracy * 100).toInt()}%" else "—", "accuracy", Modifier.weight(1f))
+                    StatChip("${state.totalPracticeMinutes}m", "practiced", Modifier.weight(1f))
+                }
+            }
+
+            state.weakNote?.let { weak -> item { WeakNoteCallout(weak) } }
+
+            item {
+                DashboardCard {
+                    SectionHeader("Accuracy trend", "Last ${state.accuracyOverTime.size} sessions")
+                    Spacer(Modifier.height(12.dp))
+                    if (state.accuracyOverTime.size < 2) {
+                        EmptyHint("Complete a few lessons to see your trend.")
+                    } else {
+                        AccuracyAreaChart(state.accuracyOverTime.map { it.accuracy })
+                    }
+                }
+            }
+
+            if (state.retentionDueNotes.isNotEmpty()) {
+                item {
+                    Surface(
+                        onClick = onOpenRetention,
+                        shape = MaterialTheme.shapes.large,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(20.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "Retention check due",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "Confirm you still have: ${state.retentionDueNotes.joinToString(", ")}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text("\u2192", fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            }
+
+            if (state.generalizationDue) {
+                item {
+                    Surface(
+                        onClick = onOpenGeneralization,
+                        shape = MaterialTheme.shapes.large,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(20.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "Generalization probe due",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "Name notes on an instrument you haven't practiced — doesn't affect training.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text("\u2192", fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            } else {
+                state.generalizationScore?.let { g ->
+                    item {
+                        DashboardCard {
+                            SectionHeader("Generalization score", "Untrained instrument probe")
+                            Spacer(Modifier.height(8.dp))
+                            Text(
+                                "${(g * 100).toInt()}% on an instrument you've never practiced",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                DashboardCard {
+                    SectionHeader("Daily missions")
+                    Spacer(Modifier.height(10.dp))
+                    if (state.missions.isEmpty()) {
+                        EmptyHint("Loading missions…")
+                    } else {
+                        state.missions.forEach { m ->
+                            val label = runCatching {
+                                MissionEngine.MissionType.valueOf(m.missionType).description
+                            }.getOrDefault(
+                                m.missionType.replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() }
+                            )
+                            MissionRow(
+                                label = label,
+                                progress = m.progress,
+                                target = m.target,
+                                completed = m.completed,
+                                xpReward = MissionEngine.XP_REWARD
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                val baseline = state.baselineAccuracy
+                if (state.checkupDue) {
+                    Surface(
+                        onClick = onOpenCheckup,
+                        shape = MaterialTheme.shapes.large,
+                        color = MaterialTheme.colorScheme.primaryContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Row(
+                            modifier = Modifier.padding(20.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    "Monthly checkup due",
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Text(
+                                    "End-of-month measure — doesn't affect training stats.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                            Text("\u2192", fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                } else if (baseline != null) {
+                    Surface(
+                        shape = MaterialTheme.shapes.large,
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(Modifier.padding(20.dp)) {
+                            Text(
+                                "Baseline ${(baseline * 100).toInt()}%",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Text(
+                                "Monthly checkup opens near month-end.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        }
+                    }
+                }
+            }
+
+            item {
+                Surface(
+                    onClick = onOpenChallenge,
+                    shape = MaterialTheme.shapes.large,
+                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(20.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Column(Modifier.weight(1f)) {
+                            Text("Skill Challenges", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                            Text("Test modes — they don't affect your training stats.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        Text("\u2192", fontSize = 20.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun GoalHero(state: DashboardUiState) {
+    val heroBrush = Brush.verticalGradient(
+        listOf(
+            MaterialTheme.colorScheme.surfaceContainer,
+            MaterialTheme.colorScheme.surface
+        )
+    )
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = Color.Transparent)
+    ) {
+        Column(
+            modifier = Modifier
+                .background(heroBrush)
+                .padding(24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            GoalRing(value = state.masteredCount, total = 12, caption = "NOTES MASTERED")
+            Spacer(Modifier.height(16.dp))
+            Text("Absolute pitch goal", style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            Text(
+                if (state.masteredCount == 0) "Master a note at ≥95% accuracy over a week to unlock it here."
+                else "${12 - state.masteredCount} notes to go — hold ≥95% over the past week to master the next one.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+    }
+}
+
+@Composable
+private fun DashboardCard(content: @Composable () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceContainer)
+    ) {
+        Column(Modifier.padding(20.dp)) { content() }
+    }
+}
+
+@Composable
+private fun WeakNoteCallout(note: NoteName) {
+    Surface(
+        shape = MaterialTheme.shapes.large,
+        color = MaterialTheme.colorScheme.errorContainer,
+        modifier = Modifier.fillMaxWidth()
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Box(
+                Modifier.size(40.dp).background(MaterialTheme.colorScheme.error.copy(alpha = 0.25f), CircleShape),
+                contentAlignment = Alignment.Center
+            ) { Text("!", color = MaterialTheme.colorScheme.onErrorContainer, fontWeight = FontWeight.Bold) }
+            Spacer(Modifier.size(12.dp))
+            Column {
+                Text("Focus note: ${note.label}", style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onErrorContainer, fontWeight = FontWeight.Bold)
+                Text("You'll see this one more often until it improves.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onErrorContainer)
+            }
+        }
+    }
+}
+
+@Composable
+private fun MissionRow(label: String, progress: Int, target: Int, completed: Boolean, xpReward: Int) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            Modifier.size(22.dp).background(
+                if (completed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                CircleShape
+            ),
+            contentAlignment = Alignment.Center
+        ) {
+            if (completed) {
+                Icon(
+                    Icons.Rounded.Check,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimary,
+                    modifier = Modifier.size(15.dp)
+                )
+            }
+        }
+        Spacer(Modifier.size(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(label, style = MaterialTheme.typography.bodyMedium)
+            Text(
+                "+$xpReward XP",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.primary,
+                fontWeight = FontWeight.SemiBold
+            )
+        }
+        Text(
+            if (completed) "Done" else "$progress/$target",
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontWeight = FontWeight.SemiBold
+        )
+    }
+}
+
+@Composable
+private fun LevelCard(state: DashboardUiState) {
+    DashboardCard {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                Modifier.size(48.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "${state.level}",
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp
+                )
+            }
+            Spacer(Modifier.size(14.dp))
+            Column(Modifier.weight(1f)) {
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                    Text("Level ${state.level}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        "${state.xpIntoLevel} / ${state.xpForNextLevel} XP",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+                Spacer(Modifier.height(8.dp))
+                Box(
+                    Modifier.fillMaxWidth().height(10.dp).clip(CircleShape)
+                        .background(MaterialTheme.colorScheme.surfaceVariant)
+                ) {
+                    Box(
+                        Modifier.fillMaxWidth(state.levelProgress).height(10.dp)
+                            .clip(CircleShape).background(MaterialTheme.colorScheme.primary)
+                    )
+                }
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    "${state.totalXp} XP total \u00B7 ${state.xpForNextLevel - state.xpIntoLevel} XP to level ${state.level + 1}",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoteCollectionGrid(
+    collection: List<NoteSlot>,
+    noteAccuracy: Map<NoteName, Float>
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        collection.chunked(4).forEach { row ->
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                row.forEach { slot ->
+                    NoteCollectionCell(
+                        slot = slot,
+                        accuracy = noteAccuracy[slot.note],
+                        modifier = Modifier.weight(1f)
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun NoteCollectionCell(
+    slot: NoteSlot,
+    accuracy: Float?,
+    modifier: Modifier = Modifier
+) {
+    val heat = accuracyHeatColor(accuracy)
+    val bg = when (slot.state) {
+        NoteCollectionState.MASTERED -> heat ?: MaterialTheme.colorScheme.primary
+        NoteCollectionState.LEARNING -> heat ?: MaterialTheme.colorScheme.secondaryContainer
+        NoteCollectionState.LOCKED -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f)
+    }
+    val fg = when {
+        slot.state == NoteCollectionState.LOCKED ->
+            MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.55f)
+        heat != null || slot.state == NoteCollectionState.MASTERED -> Color.White
+        else -> MaterialTheme.colorScheme.onSecondaryContainer
+    }
+    val status = when (slot.state) {
+        NoteCollectionState.MASTERED -> "Mastered"
+        NoteCollectionState.LEARNING -> "Learning"
+        NoteCollectionState.LOCKED -> "Locked"
+    }
+    val accBit = accuracy?.let { " · ${(it * 100).toInt()}%" }.orEmpty()
+
+    Surface(
+        color = bg,
+        shape = MaterialTheme.shapes.medium,
+        modifier = modifier
+            .height(56.dp)
+            .semantics { contentDescription = "${slot.note.label}: $status$accBit" }
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Text(
+                    slot.note.label,
+                    color = fg,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 15.sp
+                )
+                when (slot.state) {
+                    NoteCollectionState.MASTERED -> Icon(
+                        Icons.Rounded.Check,
+                        contentDescription = null,
+                        tint = fg,
+                        modifier = Modifier.size(12.dp)
+                    )
+                    NoteCollectionState.LEARNING -> Text(
+                        "•",
+                        color = fg,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                    NoteCollectionState.LOCKED -> Unit
+                }
+            }
+        }
+    }
+}
+
+/** Accuracy tint for active/mastered notes; null when there's no signal yet. */
+private fun accuracyHeatColor(accuracy: Float?): Color? = when {
+    accuracy == null -> null
+    accuracy >= 0.9f -> Color(0xFF2E7D32)
+    accuracy >= 0.7f -> Color(0xFF9E9D24)
+    accuracy >= 0.4f -> Color(0xFFEF6C00)
+    else -> Color(0xFFC62828)
+}
+
+@Composable
+private fun EmptyHint(text: String) {
+    Box(Modifier.fillMaxWidth().padding(vertical = 12.dp), contentAlignment = Alignment.Center) {
+        Text(text, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}

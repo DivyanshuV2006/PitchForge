@@ -1,0 +1,133 @@
+# Built application files
+*.apk
+*.aar
+*.ap_
+*.aab
+
+# Files for the ART/Dalvik VM
+*.dex
+
+# Java class files
+*.class
+
+# Generated files
+bin/
+gen/
+out/
+release/
+
+# Gradle files
+.gradle/
+build/
+
+# Local configuration file (sdk path, etc)
+local.properties
+
+# Proguard
+proguard/
+
+# Log Files
+*.log
+
+# Android Studio Navigation editor temp files
+.navigation/
+
+# Android Studio captures folder
+captures/
+
+# IntelliJ / Android Studio
+*.iml
+.idea/
+*.ipr
+*.iws
+
+# Keystore files (keep signing secrets out of VCS)
+*.jks
+*.keystore
+
+# External native build
+.externalNativeBuild/
+.cxx/
+
+# Google Services / Firebase (often contains API keys)
+google-services.json
+
+# fastlane
+fastlane/report.xml
+fastlane/Preview.html
+fastlane/screenshots
+fastlane/test_output
+
+# Lint
+lint/intermediates/
+lint/generated/
+lint/outputs/
+lint/tmp/
+lint/reports/
+
+# Android Profiling
+*.hprof
+
+# Kotlin
+.kotlin/
+
+# NDK
+obj/
+
+# Secrets / credentials
+secrets.properties
+*.pem
+*.p12
+credentials.json
+service-account*.json
+.env
+.env.*
+!.env.example
+
+# Python tooling (tools/)
+tools/__pycache__/
+tools/**/__pycache__/
+tools/*.py[cod]
+tools/**/*.py[cod]
+tools/.venv/
+tools/venv/
+tools/.mypy_cache/
+tools/.ruff_cache/
+tools/.pytest_cache/
+tools/.coverage
+tools/htmlcov/
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+.venv/
+venv/
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# OS
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+$RECYCLE.BIN/
+*~
+.fuse_hidden*
+.directory
+.Trash-*
+.nfs*
+
+# Editors
+*.swp
+*.swo
+.vscode/
+!.vscode/extensions.json
+.fleet/
+*.bak
+*.tmp
+*.temp
+.history/

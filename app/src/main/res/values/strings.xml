@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">PitchForge</string>
+
+    <!-- Onboarding -->
+    <string name="onboarding_welcome_title">Welcome to PitchForge</string>
+    <string name="onboarding_welcome_body">Perfect pitch — the ability to name a note without a reference — can be learned by most adults with structured training. This app is based on peer-reviewed research.</string>
+    <string name="onboarding_how_title">How It Works</string>
+    <string name="onboarding_how_body">You\'ll hear a note, identify it, and get immediate feedback. The app adapts to your progress: starting with 3 notes, expanding as you master them.</string>
+    <string name="onboarding_practice_title">Practice Matters</string>
+    <string name="onboarding_practice_body">Studies show meaningful improvement takes 12–40 hours over 8 weeks. A few minutes daily beats cramming.</string>
+    <string name="onboarding_diagnostic_title">Diagnostic Test</string>
+    <string name="onboarding_diagnostic_body">First, a short diagnostic: 12 notes with no feedback. This sets your baseline and determines your starting level.</string>
+    <string name="next">Next</string>
+    <string name="skip">Skip</string>
+    <string name="start_diagnostic">Start Diagnostic</string>
+
+    <!-- Lesson -->
+    <string name="tap_to_hear">Tap to hear the note</string>
+    <string name="which_note">Which note is this?</string>
+    <string name="correct">Correct!</string>
+    <string name="incorrect">Incorrect</string>
+    <string name="too_slow">Right note, but too slow</string>
+    <string name="correct_note_was">The correct note was</string>
+    <string name="lesson_complete">Lesson Complete!</string>
+    <string name="dashboard">Dashboard</string>
+    <string name="next_question">Next Question</string>
+    <string name="see_results">See Results</string>
+
+    <!-- Dashboard -->
+    <string name="current_streak">Current Streak</string>
+    <string name="overview">Overview</string>
+    <string name="per_note_accuracy">Per-Note Accuracy</string>
+    <string name="daily_missions">Daily Missions</string>
+    <string name="start_lesson">Start Lesson</string>
+    <string name="settings">Settings</string>
+    <string name="skill_challenges">Skill Challenges</string>
+    <string name="total_lessons">Total Lessons</string>
+    <string name="best_streak">Best Streak</string>
+
+    <!-- Settings -->
+    <string name="active_timbres">Active Timbres</string>
+    <string name="volume">Volume</string>
+    <string name="notifications">Notifications</string>
+    <string name="theme">Theme</string>
+    <string name="system_theme">System</string>
+    <string name="light_theme">Light</string>
+    <string name="dark_theme">Dark</string>
+
+    <!-- Challenges -->
+    <string name="gauntlet">20-Note Gauntlet</string>
+    <string name="timed_mode">Timed Mode</string>
+    <string name="chaos_mode">Mixed Timbre Chaos</string>
+    <string name="challenges_description">Challenge yourself with harder, non-adaptive test modes.</string>
+
+    <!-- Science attribution -->
+    <string name="about_science">About the Science</string>
+    <string name="about_science_body">PitchForge\'s training method is drawn from published research on adult absolute pitch acquisition. Studies show that AP is learnable-in-part by most adults with sustained training, and fully learnable by some. For details, see: Wong et al. (2019, 2020, 2025).</string>
+</resources>
